@@ -1,0 +1,525 @@
+---
+sidebar_position: 2
+title: "The Machine Learning System Lifecycle"
+description: "Deep dive into data pipelines, model training, deployment, and monitoring in production ML systems"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# The Full MLOps Blueprint: The Machine Learning System Lifecycle
+
+> *"One of the biggest takeaways is the importance of data. Time and again, industry experience has shown that model performance is only as good as the data it learns from."*
+
+## Table of Contents
+
+1. [Recap](#recap)
+2. [The Machine Learning System Lifecycle](#the-machine-learning-system-lifecycle)
+   - 2.1. [Data Pipelines](#data-pipelines)
+   - 2.2. [Model Training and Experimentation](#model-training-and-experimentation)
+   - 2.3. [Model Deployment and Inference](#model-deployment-and-inference)
+   - 2.4. [Monitoring and Observability](#monitoring-and-observability)
+3. [Hands-On Project: Training to API](#hands-on-project-from-training-to-api)
+   - 3.1. [Train and Save the Model](#train-and-save-the-model)
+   - 3.2. [Create FastAPI App](#create-fastapi-app-for-inference)
+   - 3.3. [Testing and Containerization](#running-and-testing-the-api)
+4. [Conclusion](#conclusion)
+
+## Recap
+
+In Part 1, we explored the background and basics of MLOps. We realized that model development is actually a very small part of a much larger journey.
+
+We discussed why MLOps matters and how it helps solve long-standing issues of ML in production. We explored differences between ML systems/MLOps and traditional software systems.
+
+We then turned our focus to system-level concerns in production ML: latency and throughput, data and concept drift, feedback loops, and reproducibility.
+
+Finally, we took a quick look at the machine learning system lifecycle and its various phases.
+
+> **Insight**
+>
+> By the end of Part 1, we had a clear idea that ML is not just a model-centric exercise but rather a systems engineering discipline, where reproducibility, automation, and monitoring are first-class citizens.
+
+## The Machine Learning System Lifecycle
+
+In Part 1, we took an overview of the machine learning system lifecycle. Now let's deepen our understanding by breaking down each component in detail, with a focus on the core technical elements of the ML pipeline.
+
+<ProcessFlow
+  steps={[
+    { label: 'Scoping', description: 'Define problem and requirements' },
+    { label: 'Data', description: 'Collect, process, and prepare' },
+    { label: 'Modeling', description: 'Train and validate' },
+    { label: 'Deployment', description: 'Serve predictions' },
+    { label: 'Monitoring', description: 'Track and improve' }
+  ]}
+/>
+
+### Data Pipelines
+
+In ML, the quality and management of your data are often more important than the specific modeling algorithm.
+
+**In plain English:** Think of data pipelines as the supply chain for your ML system. Just like a restaurant needs reliable suppliers for fresh ingredients, your model needs reliable pipelines for clean, timely data.
+
+**In technical terms:** In a production ML system, you need a robust data pipeline to reliably feed data into model training and eventually into model inference (serving).
+
+**Why it matters:** If the data going in is not reliable, the model predictions coming out will not be reliable either. Data quality issues are a more frequent cause of failure in production ML than algorithm issues.
+
+<StackDiagram
+  layers={[
+    { label: 'Data Ingestion', size: 2, color: colors.blue },
+    { label: 'Data Storage', size: 2, color: colors.green },
+    { label: 'Data Processing (ETL)', size: 3, color: colors.orange },
+    { label: 'Data Labeling', size: 2, color: colors.purple },
+    { label: 'Data Versioning', size: 2, color: colors.pink }
+  ]}
+/>
+
+#### Key Aspects of Data Pipelines
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Data Ingestion</h4>
+    <p>Getting raw data from various sources into your system</p>
+    <ul>
+      <li><strong>Batch:</strong> Periodically importing dumps or running daily jobs</li>
+      <li><strong>Streaming:</strong> Real-time processing of incoming events</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Data Storage</h4>
+    <p>Store data in both raw and processed forms</p>
+    <ul>
+      <li>Data lakes (S3, GCP Cloud Storage, HDFS)</li>
+      <li>Relational databases</li>
+      <li>Feature stores (centralized database of precomputed features)</li>
+    </ul>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Data Processing (ETL)</h4>
+    <p>Transform raw data into model-ready features</p>
+    <ul>
+      <li>Join multiple data sources</li>
+      <li>Clean and normalize</li>
+      <li>Encode categorical variables</li>
+      <li>Create new features</li>
+    </ul>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Data Versioning</h4>
+    <p>Track which data was used to train which model</p>
+    <ul>
+      <li>DVC (Data Version Control)</li>
+      <li>Store metadata (timestamps, checksums, record counts)</li>
+      <li>Ensure reproducibility</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::warning Training/Serving Skew
+Offline pipelines can be heavier since they are not user-facing. Online pipelines need to be lightweight and low-latency. Ensuring that offline and online pipelines are consistent (not producing contradictory results) is a known challenge. Using a shared feature store or deriving training data by simulating online computations are common solutions.
+:::
+
+### Model Training and Experimentation
+
+Once you have your data ready, the next phase is model training. In a production context, this stage still often happens offline, but the way you manage training is more rigorous than an ad-hoc experiment.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Experiment Tracking</h4>
+    <p>Record everything about each training run:</p>
+    <ul>
+      <li>Code version (Git hash)</li>
+      <li>Data subset used</li>
+      <li>Hyperparameters</li>
+      <li>Evaluation metrics</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Model Validation</h4>
+    <p>Rigorous evaluation before production:</p>
+    <ul>
+      <li>Testing on fresh hold-out test set</li>
+      <li>Domain-specific evaluation</li>
+      <li>Ethical and bias reviews</li>
+      <li>Baseline metric comparisons</li>
+    </ul>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Training Pipeline Automation</h4>
+    <p>Make the entire process repeatable:</p>
+    <ul>
+      <li>Fetch latest data</li>
+      <li>Preprocess</li>
+      <li>Train model</li>
+      <li>Evaluate metrics</li>
+      <li>Push to registry if good</li>
+    </ul>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Resource Management</h4>
+    <p>Efficiently use computational resources:</p>
+    <ul>
+      <li>Cloud VMs with GPUs/TPUs</li>
+      <li>Distributed computing clusters</li>
+      <li>Docker images for consistency</li>
+      <li>Spot instances for cost savings</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::tip Model Registry
+A model registry is a central repository that stores and manages different versions of machine learning models. It allows teams to track the entire lifecycle of models, from development and testing to deployment. When a model is "pushed to the registry," it is typically logged with metadata about its version, performance metrics, and training dataset.
+:::
+
+### Model Deployment and Inference
+
+Deployment is the stage where the rubber meets the road. The model is taken out of the training environment and integrated into the production system so it can start serving predictions to end-users or other systems.
+
+<ComparisonTable
+  headers={['Deployment Pattern', 'Use Case', 'Characteristics']}
+  rows={[
+    ['Online (Real-time API)', 'User-facing predictions', 'Low latency, high availability, scalable'],
+    ['Batch Inference', 'Periodic bulk predictions', 'High throughput, scheduled jobs, cost-effective'],
+    ['Edge Deployment', 'Mobile/IoT devices', 'Resource-constrained, offline-capable, compressed models']
+  ]}
+/>
+
+#### Deployment Patterns
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Online Inference</h4>
+    <p>Deploy model as a microservice behind an API</p>
+    <ul>
+      <li>Flask/FastAPI application</li>
+      <li>RESTful API or gRPC</li>
+      <li>Containerized with Docker</li>
+      <li>Run on Kubernetes cluster</li>
+      <li>Behind load balancer</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Batch Inference</h4>
+    <p>Process large datasets periodically</p>
+    <ul>
+      <li>Scheduled weekly/daily jobs</li>
+      <li>Process millions of records</li>
+      <li>Store results in database</li>
+      <li>Use distributed frameworks</li>
+      <li>No 24/7 service required</li>
+    </ul>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Edge Deployment</h4>
+    <p>Deploy to end-user devices</p>
+    <ul>
+      <li>Mobile phones</li>
+      <li>IoT devices</li>
+      <li>Smart speakers</li>
+      <li>Requires model compression</li>
+      <li>Limited compute/power</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+#### Canary Deployment vs. A/B Testing
+
+<DiagramContainer title="Gradual Rollout Strategies">
+  <ComparisonTable
+    headers={['Aspect', 'Canary Deployment', 'A/B Testing']}
+    rows={[
+      ['Focus', 'Risk reduction and stability', 'Optimization and feature effectiveness'],
+      ['Metrics', 'Operational (errors, latency)', 'Business (conversions, engagement)'],
+      ['Traffic Split', 'Small percentage gradually increased', 'Statistically significant balanced groups'],
+      ['Duration', 'Short-term validation', 'Longer-term comparison']
+    ]}
+  />
+</DiagramContainer>
+
+:::tip Best Practice
+These strategies can be used together. A canary deployment might precede an A/B test, ensuring the new version is stable before being used in an experimental setting.
+:::
+
+### Monitoring and Observability
+
+After deployment, an ML model does not just get left alone; it needs to be monitored continuously. Monitoring an ML system involves everything you would monitor in a normal software service, plus some ML-specific angles.
+
+<StackDiagram
+  layers={[
+    { label: 'Operational Monitoring', size: 2, color: colors.blue },
+    { label: 'Data Quality & Drift', size: 3, color: colors.green },
+    { label: 'Model Performance', size: 3, color: colors.orange },
+    { label: 'Business Metrics', size: 2, color: colors.purple }
+  ]}
+/>
+
+#### Monitoring Dimensions
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Operational Monitoring</h4>
+    <ul>
+      <li>Latency (response time)</li>
+      <li>Throughput (requests/sec)</li>
+      <li>Error rates (HTTP 5xx)</li>
+      <li>Resource usage (CPU, memory, GPU)</li>
+      <li>Service uptime</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Data Quality & Drift</h4>
+    <ul>
+      <li>Input distribution changes</li>
+      <li>Feature statistics (mean, std dev)</li>
+      <li>Category frequencies</li>
+      <li>PSI, KL divergence</li>
+      <li>Compare vs. training data</li>
+    </ul>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Model Performance</h4>
+    <ul>
+      <li>Prediction confidence scores</li>
+      <li>Positive prediction rates</li>
+      <li>Ground truth feedback</li>
+      <li>Accuracy on recent data</li>
+      <li>Precision/recall metrics</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Model performance is not the same as business performance. You have to measure both. A model with slightly lower accuracy might actually perform better in business terms if it is more aligned with the real goal or user experience.
+
+## Hands-On Project: From Training to API
+
+To ground these ideas, let's walk through a simplified hands-on example of deploying an ML model. We will train a basic scikit-learn classifier on the Iris dataset and make it available as a web service using FastAPI.
+
+<ProcessFlow
+  steps={[
+    { label: 'Train Model', description: 'Train and serialize model' },
+    { label: 'Create API', description: 'Build FastAPI application' },
+    { label: 'Test Endpoint', description: 'Verify predictions' },
+    { label: 'Containerize', description: 'Package with Docker' }
+  ]}
+/>
+
+### Train and Save the Model
+
+First, let's train a RandomForest classifier on the Iris dataset and serialize it:
+
+```python
+from sklearn.datasets import load_iris
+from sklearn.ensemble import RandomForestClassifier
+import joblib
+
+# Load data
+iris = load_iris()
+X, y = iris.data, iris.target
+
+# Train model
+model = RandomForestClassifier(n_estimators=50, random_state=42)
+model.fit(X, y)
+
+# Save model
+joblib.dump(model, 'iris_model.pkl')
+```
+
+**In plain English:** We train a forest of 50 decision trees on the iris dataset (flower measurements), then save it to a file so we can load it later without retraining.
+
+**In technical terms:** We use sklearn's RandomForestClassifier with 50 trees, fit it on the entire Iris dataset, and serialize the trained model using joblib for efficient storage and loading.
+
+**Why it matters:** Separating training from serving is a key MLOps practice. The model artifact can be versioned, tested, and deployed independently from the training code.
+
+### Create FastAPI App for Inference
+
+Now let's create a simple API service that loads the model and exposes a prediction endpoint:
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import numpy as np
+
+app = FastAPI()
+
+# Load model on startup
+model = joblib.load('iris_model.pkl')
+iris_names = ['setosa', 'versicolor', 'virginica']
+
+class IrisFeatures(BaseModel):
+    sepal_length: float
+    sepal_width: float
+    petal_length: float
+    petal_width: float
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+@app.post("/predict")
+def predict(features: IrisFeatures):
+    X = np.array([[
+        features.sepal_length,
+        features.sepal_width,
+        features.petal_length,
+        features.petal_width
+    ]])
+
+    prediction = model.predict(X)[0]
+    probability = model.predict_proba(X)[0]
+    confidence = float(probability.max())
+
+    return {
+        "species": iris_names[prediction],
+        "confidence": round(confidence, 3)
+    }
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Key Components</h4>
+    <ul>
+      <li><strong>Pydantic Model:</strong> Validates incoming JSON</li>
+      <li><strong>Health Endpoint:</strong> For load balancer checks</li>
+      <li><strong>Predict Endpoint:</strong> Returns species + confidence</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Best Practices</h4>
+    <ul>
+      <li>Load model once at startup (not per request)</li>
+      <li>Validate inputs with Pydantic</li>
+      <li>Return JSON-serializable responses</li>
+      <li>Include confidence scores</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+### Running and Testing the API
+
+Start the server using Uvicorn:
+
+```bash
+uvicorn app:app --host 0.0.0.0 --port 5000 --reload
+```
+
+Test with a simple script:
+
+```python
+import requests
+import time
+
+url = "http://localhost:5000/predict"
+data = {
+    "sepal_length": 5.1,
+    "sepal_width": 3.5,
+    "petal_length": 1.4,
+    "petal_width": 0.2
+}
+
+start = time.time()
+response = requests.post(url, json=data)
+elapsed = time.time() - start
+
+print(f"Prediction: {response.json()}")
+print(f"Latency: {elapsed*1000:.2f}ms")
+```
+
+**Expected Output:**
+```
+Prediction: {'species': 'setosa', 'confidence': 0.98}
+Latency: 12.34ms
+```
+
+#### Containerization
+
+Create a Dockerfile to package the application:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY app.py iris_model.pkl requirements.txt ./
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 80
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80"]
+```
+
+Build and run:
+
+```bash
+docker build -t iris-api:v1 .
+docker run -p 5000:80 iris-api:v1
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>What We Achieved</h4>
+    <ul>
+      <li>Separated training from serving</li>
+      <li>Built a well-defined API contract</li>
+      <li>Made the service scalable</li>
+      <li>Containerized for reproducibility</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Production Considerations</h4>
+    <ul>
+      <li>Add logging for monitoring</li>
+      <li>Implement input validation</li>
+      <li>Set up load balancing</li>
+      <li>Add CI/CD pipeline</li>
+      <li>Version models in registry</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::tip FastAPI Auto-Documentation
+FastAPI provides automatic documentation at `/docs` where you can interact with the API using a Swagger UI interface.
+:::
+
+## Conclusion
+
+With this detailed exploration, we have moved beyond just the what and why of MLOps into the how of MLOps systems.
+
+We began by digging deep into the ML system lifecycle, not just as a series of academic stages, but as real-world engineering workflows that require consistent attention, automation, and validation.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Data is Foundational</h4>
+    <p>Model performance is only as good as the data it learns from. Investing in data infrastructure is the backbone of any ML system.</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Training Rigor</h4>
+    <p>Shift from casual notebook tinkering to organized experimentation with strong reproducibility guarantees</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Deployment Strategies</h4>
+    <p>Use canary releases and A/B testing to safely validate improvements and detect regressions early</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Monitoring is Critical</h4>
+    <p>Deployment is not the end - it is the beginning of a new set of challenges. Continuous monitoring is essential.</p>
+  </Box>
+</CardGrid>
+
+### What's Next
+
+Future chapters will explore:
+
+- Hands-on tooling for versioning and reproducibility
+- CI/CD pipelines for ML systems
+- Real-world case studies from industry
+- Monitoring for performance
+- Special considerations for LLMOps
+- End-to-end projects
+
+> **Insight**
+>
+> Tools come and go. What remains are the foundational principles: build for reproducibility, design for automation, plan for monitoring, and always engineer for reliability.

@@ -1,0 +1,530 @@
+---
+sidebar_position: 17
+title: "Monitoring and Observability—Part B: Tools and Implementation"
+description: "Hands-on guide to Evidently AI for functional monitoring, Prometheus and Grafana for operational monitoring, with complete implementation examples"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "These tools make the invisible visible. They provide the lens through which we see inside the black box when the only thing the outside world sees is a simple prediction."
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Evidently AI: Functional Monitoring](#2-evidently-ai-functional-monitoring)
+   - 2.1. [Core Capabilities](#21-core-capabilities)
+   - 2.2. [Hands-on with Evidently](#22-hands-on-with-evidently)
+3. [Prometheus: Operational Monitoring](#3-prometheus-operational-monitoring)
+4. [Grafana: Visualization and Alerting](#4-grafana-visualization-and-alerting)
+5. [Hands-on: Complete ML Monitoring Pipeline](#5-hands-on-complete-ml-monitoring-pipeline)
+   - 5.1. [Project Setup](#51-project-setup)
+   - 5.2. [Building the FastAPI Service](#52-building-the-fastapi-service)
+   - 5.3. [Deploying Prometheus and Grafana](#53-deploying-prometheus-and-grafana)
+   - 5.4. [Testing and Visualization](#54-testing-and-visualization)
+6. [Conclusion](#6-conclusion)
+
+---
+
+## 1. Introduction
+
+**In plain English:** Think of monitoring tools as the diagnostic equipment in a hospital. Just as doctors use X-rays, blood tests, and heart monitors to see what is happening inside a patient, ML engineers use Evidently, Prometheus, and Grafana to see what is happening inside production ML systems.
+
+**In technical terms:** This chapter introduces the most common tools for ensuring ML systems remain healthy, reliable, and aligned with real-world behavior. These tools provide functional monitoring (ML-specific metrics like drift and data quality) and operational monitoring (system health metrics like latency and throughput). Together, they form a complete observability stack for production ML systems.
+
+**Why it matters:** In production, nothing is visible unless you explicitly measure it. You do not see input data flowing through APIs, you do not notice drift unless you actively compute it, latency spikes remain hidden unless tracked, and failures go unnoticed without alerting. Monitoring is what turns these hidden problems into observable signals you can act upon.
+
+<DiagramContainer>
+  <Row gap="large">
+    <Column flex={1}>
+      <Box padding="large" background={colors.purple} border>
+        <h4 style={{marginTop: 0}}>Functional Monitoring (ML-Specific)</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Data drift detection</li>
+          <li>Concept drift tracking</li>
+          <li>Data quality checks</li>
+          <li>Model performance degradation</li>
+          <li><strong>Tool: Evidently AI</strong></li>
+        </ul>
+      </Box>
+    </Column>
+    <Column flex={1}>
+      <Box padding="large" background={colors.blue} border>
+        <h4 style={{marginTop: 0}}>Operational Monitoring (System Health)</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Latency and throughput</li>
+          <li>Error rates</li>
+          <li>CPU, memory, GPU usage</li>
+          <li>Service availability</li>
+          <li><strong>Tools: Prometheus + Grafana</strong></li>
+        </ul>
+      </Box>
+    </Column>
+  </Row>
+</DiagramContainer>
+
+---
+
+## 2. Evidently AI: Functional Monitoring
+
+**In plain English:** Evidently is like a quality inspector for your data and models. Just as a factory quality inspector checks if products meet specifications, Evidently checks if your production data matches training data, if predictions are reasonable, and if the model still performs well.
+
+**In technical terms:** Evidently is an open-source Python library for ML monitoring that focuses on understanding data, not just system metrics. It automatically compares feature distributions over time, highlights deviations, and generates interactive HTML dashboards. Evidently handles statistical tests (KS, KL Divergence, Chi-square) seamlessly, making drift detection effortless and production-ready.
+
+**Why it matters:** Evidently transforms complex statistical analysis into simple, actionable reports. It enables teams to detect drift, validate data quality, and monitor model performance without building custom monitoring infrastructure. Its framework-agnostic design integrates smoothly with any ML pipeline.
+
+### 2.1. Core Capabilities
+
+<CardGrid columns={2}>
+  <Box padding="large" background={colors.blue}>
+    <strong>Data Drift Detection</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Automatically compares feature distributions using KS test, KL Divergence, Chi-square tests. Provides clear reports showing which features drifted.
+    </div>
+  </Box>
+  <Box padding="large" background={colors.green}>
+    <strong>Data Quality Checks</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Flags missing values, outliers, range violations, type mismatches, and unexpected categories. Catches upstream pipeline issues early.
+    </div>
+  </Box>
+  <Box padding="large" background={colors.purple}>
+    <strong>Model Performance Monitoring</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Given true labels, computes accuracy, precision, recall, ROC AUC, F1-score. Tracks how metrics change over time.
+    </div>
+  </Box>
+  <Box padding="large" background={colors.orange}>
+    <strong>Automatic HTML Dashboards</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Generates clean, interactive dashboards exported as HTML, JSON, or Jupyter widgets. Easy to automate via Cron Jobs or CI/CD.
+    </div>
+  </Box>
+</CardGrid>
+
+### 2.2. Hands-on with Evidently
+
+We will simulate drift intentionally to demonstrate how Evidently detects it in practice.
+
+**Step 1: Generate reference and production datasets**
+
+```python
+import pandas as pd
+import numpy as np
+
+np.random.seed(42)
+
+# Reference data (training/baseline)
+reference = pd.DataFrame({
+    'age': np.random.randint(20, 60, 1000),
+    'income': np.random.normal(50000, 15000, 1000),
+    'transactions': np.random.poisson(10, 1000)
+})
+
+# Current data with drift
+current = pd.DataFrame({
+    'age': np.random.randint(20, 60, 1000),  # No drift
+    'income': np.random.normal(55000, 18000, 1000),  # Mean + variance shift
+    'transactions': np.random.poisson(15, 1000)  # Distribution shift
+})
+```
+
+**Step 2: Create drift report with Evidently**
+
+```python
+from evidently.report import Report
+from evidently.metric_preset import DataDriftPreset
+
+# Create and run report
+report = Report(metrics=[DataDriftPreset()])
+report.run(reference_data=reference, current_data=current)
+
+# Save as HTML
+report.save_html("drift_report.html")
+
+# Extract results programmatically
+results = report.as_dict()
+print(f"Dataset drift detected: {results['metrics'][0]['result']['dataset_drift']}")
+```
+
+The generated report highlights:
+- **Feature-level drift status:** Each column evaluated independently
+- **Statistical test results:** KS test p-values for each feature
+- **Visual distribution comparisons:** Side-by-side histograms
+
+> **Insight**
+>
+> Instead of dashboards, you can extract results as Python dictionaries with `.as_dict()`. This is crucial for automation—use in K8s CronJobs, alerting pipelines, etc. This lays the foundation for detecting drift without human interaction.
+
+**Step 3: Data quality report**
+
+```python
+from evidently.metric_preset import DataQualityPreset
+
+quality_report = Report(metrics=[DataQualityPreset()])
+quality_report.run(reference_data=reference, current_data=current)
+quality_report.save_html("quality_report.html")
+```
+
+This produces a comprehensive report containing:
+- Missing value percentages
+- Duplicate row counts
+- Min-max range checks
+- Type mismatches
+- Outlier detection
+
+---
+
+## 3. Prometheus: Operational Monitoring
+
+**In plain English:** Prometheus is like a data logger that constantly records measurements from your system. Think of it as a fitness tracker that records your heart rate, steps, and calories burned every few seconds. Prometheus records metrics like request counts, response times, and memory usage from your ML service.
+
+**In technical terms:** Prometheus is a pull-based, time-series monitoring system. It repeatedly collects numerical metrics from your service by scraping an exposed `/metrics` endpoint and stores how those values change over time. These time-series metrics feed into dashboards and alerting systems to help diagnose issues and react to anomalies.
+
+**Why it matters:** Prometheus is especially well-suited for ML systems because it scrapes metrics directly from FastAPI services, is lightweight and cloud-native, supports labels for granular metric slicing (model name, version), and powers alerting through Alertmanager with SRE-style rules.
+
+<ProcessFlow
+  steps={[
+    {
+      label: 'Expose /metrics',
+      description: 'FastAPI service exposes Prometheus endpoint',
+      color: colors.blue
+    },
+    {
+      label: 'Prometheus Scrapes',
+      description: 'Collects metrics every few seconds',
+      color: colors.green
+    },
+    {
+      label: 'Store Time-Series',
+      description: 'Builds timeline of metric values',
+      color: colors.purple
+    },
+    {
+      label: 'Query with PromQL',
+      description: 'Analyze and aggregate metrics',
+      color: colors.orange
+    },
+    {
+      label: 'Alert via Alertmanager',
+      description: 'Trigger alerts on thresholds',
+      color: colors.red
+    }
+  ]}
+/>
+
+---
+
+## 4. Grafana: Visualization and Alerting
+
+**In plain English:** If Prometheus is the data logger, Grafana is the beautiful dashboard display. It takes the raw numbers from Prometheus and turns them into graphs, charts, and visual panels that make sense at a glance—like how a car dashboard turns sensor data into speedometer and fuel gauge displays.
+
+**In technical terms:** Grafana is a visualization and alerting platform that queries time-series data from Prometheus (and other sources) to build rich dashboards. It supports powerful features like alerting rules, email notifications, multiple data sources (PromQL, SQL, JSON), custom plugins, and ad-hoc exploratory analysis.
+
+**Why it matters:** Grafana is essential for ML teams because it allows engineers to visualize changes in input feature distributions, shifts in prediction distributions, spikes in model errors, and time-correlated anomalies. It enables comparison across time windows and joint analysis of drift, latency, and errors—something neither Prometheus nor logs can do alone.
+
+<ComparisonTable
+  headers={['Tool', 'Role', 'Strengths']}
+  rows={[
+    [
+      'Prometheus',
+      'Metrics collection and storage',
+      'Time-series database, pull-based scraping, PromQL queries'
+    ],
+    [
+      'Grafana',
+      'Visualization and alerting',
+      'Rich dashboards, multi-source support, flexible alerting'
+    ],
+    [
+      'Together',
+      'Complete operational monitoring',
+      'Metrics → Storage → Visualization → Alerts'
+    ]
+  ]}
+/>
+
+---
+
+## 5. Hands-on: Complete ML Monitoring Pipeline
+
+We will build a FastAPI inference service with Evidently, Prometheus, and Grafana integration for complete functional and operational monitoring.
+
+### 5.1. Project Setup
+
+**Requirements:**
+- Python 3.12+
+- Docker and kind (Kubernetes-in-Docker)
+- kubectl
+
+**Install dependencies:**
+```bash
+uv sync  # or pip install -r requirements.txt
+```
+
+**Start kind cluster:**
+```bash
+kind create cluster
+kubectl cluster-info
+```
+
+### 5.2. Building the FastAPI Service
+
+**FastAPI app with Prometheus metrics and logging:**
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import numpy as np
+import logging
+import csv
+import os
+from prometheus_client import Counter, Histogram, Gauge, make_asgi_app
+from prometheus_fastapi_instrumentator import Instrumentator
+from datetime import datetime
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Prometheus metrics
+REQUEST_COUNT = Counter('prediction_requests_total', 'Total prediction requests')
+LATENCY = Histogram('prediction_latency_seconds', 'Prediction latency')
+CPU_USAGE = Gauge('system_cpu_usage', 'CPU usage percentage')
+MEMORY_USAGE = Gauge('system_memory_usage', 'Memory usage percentage')
+
+app = FastAPI()
+
+# Add Prometheus middleware
+Instrumentator().instrument(app).expose(app)
+
+# Load model
+model = joblib.load("model.pkl")
+
+class InputData(BaseModel):
+    age: float
+    income: float
+    transactions: float
+
+@app.post("/predict")
+def predict(data: InputData):
+    REQUEST_COUNT.inc()
+
+    with LATENCY.time():
+        # Dummy prediction
+        prediction = 0.5 * data.age + 0.3 * data.income + 0.2 * data.transactions
+
+        # Log request
+        with open("request_log.csv", "a") as f:
+            writer = csv.writer(f)
+            writer.writerow([data.age, data.income, data.transactions, prediction])
+
+    return {"prediction": float(prediction)}
+
+@app.get("/drift-report")
+def drift_report():
+    import pandas as pd
+    from evidently.report import Report
+    from evidently.metric_preset import DataDriftPreset
+
+    # Load data
+    current = pd.read_csv("request_log.csv", names=['age', 'income', 'transactions', 'prediction'])
+    reference = pd.read_csv("reference.csv")
+
+    # Generate report
+    report = Report(metrics=[DataDriftPreset()])
+    report.run(reference_data=reference, current_data=current[['age', 'income', 'transactions']])
+    report.save_html("drift_report.html")
+
+    results = report.as_dict()
+    return {"drift_detected": results['metrics'][0]['result']['dataset_drift']}
+
+# Background thread for system metrics
+import threading
+import psutil
+import time
+
+def monitor_system():
+    while True:
+        CPU_USAGE.set(psutil.cpu_percent())
+        MEMORY_USAGE.set(psutil.virtual_memory().percent)
+        time.sleep(5)
+
+@app.on_event("startup")
+def startup():
+    thread = threading.Thread(target=monitor_system, daemon=True)
+    thread.start()
+```
+
+### 5.3. Deploying Prometheus and Grafana
+
+**Prometheus ConfigMap (prometheus-config.yaml):**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 2s
+    scrape_configs:
+      - job_name: 'fastapi_local'
+        metrics_path: '/metrics'
+        static_configs:
+          - targets: ['<your-bridge-ip>:8000']
+```
+
+**Prometheus Deployment (prometheus-deployment.yaml):**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus
+        args: ["--config.file=/etc/prometheus/prometheus.yml"]
+        ports:
+        - containerPort: 9090
+        volumeMounts:
+        - name: prom-config
+          mountPath: /etc/prometheus
+      volumes:
+      - name: prom-config
+        configMap:
+          name: prometheus-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+spec:
+  type: ClusterIP
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+```
+
+**Grafana Deployment (grafana-deployment.yaml):**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana
+        ports:
+        - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    targetPort: 3000
+```
+
+**Deploy to Kubernetes:**
+
+```bash
+kubectl apply -f prometheus-config.yaml
+kubectl apply -f prometheus-deployment.yaml
+kubectl apply -f grafana-deployment.yaml
+
+# Port forward to access locally
+kubectl port-forward svc/prometheus 9090:9090 &
+kubectl port-forward svc/grafana 3000:3000 &
+```
+
+**Configure Grafana:**
+1. Access http://localhost:3000 (admin/admin)
+2. Add Prometheus data source: http://prometheus:9090
+3. Create dashboards for metrics like `prediction_requests_total`, `prediction_latency_seconds`, `system_cpu_usage`
+
+### 5.4. Testing and Visualization
+
+**Test script (test_api.py):**
+
+```python
+import requests
+import random
+import time
+
+for i in range(100):
+    data = {
+        "age": random.uniform(20, 60),
+        "income": random.uniform(30000, 80000),
+        "transactions": random.uniform(1, 20)
+    }
+    response = requests.post("http://localhost:8000/predict", json=data)
+    print(f"Request {i+1}: {response.json()}")
+    time.sleep(0.1)
+
+# Request drift report
+drift_response = requests.get("http://localhost:8000/drift-report")
+print(f"Drift: {drift_response.json()}")
+```
+
+**View in Grafana:**
+- Navigate to http://localhost:3000
+- Explore metrics: `prediction_requests_total`, `system_memory_usage`
+- Create panels for visualization
+- Set up alerts for thresholds
+
+---
+
+## 6. Conclusion
+
+In this chapter, we moved from understanding monitoring to building it, transforming abstract ideas into a complete observability ecosystem.
+
+We explored Evidently AI for functional monitoring (data drift, quality checks, performance tracking) and Prometheus + Grafana for operational monitoring (latency, throughput, resource health).
+
+We built a complete FastAPI inference service with Prometheus metrics, Evidently integration, and deployed Prometheus and Grafana on Kubernetes for full observability.
+
+**Key Takeaways:**
+- Monitoring ML systems requires both functional and operational monitoring
+- Evidently provides a powerful Python-native toolkit for drift and quality analysis
+- Prometheus + Grafana form the operational backbone of modern ML observability
+- Automation and integration are crucial for production-ready monitoring
+
+We have completed one of the most essential pillars of the MLOps lifecycle: monitoring and observability.
+
+In the next part, we will explore CI/CD workflows for ML systems.
+
+:::info Recommended Reading
+- [Evidently AI Documentation](https://docs.evidentlyai.com/)
+- [Prometheus Documentation](https://prometheus.io/docs/)
+- [Grafana Documentation](https://grafana.com/docs/)
+:::

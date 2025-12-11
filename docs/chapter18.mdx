@@ -1,0 +1,646 @@
+---
+sidebar_position: 18
+title: "CI/CD Workflows for ML Systems"
+description: "Complete guide to continuous integration and continuous delivery for machine learning, including data CI, model CI, automated deployments, and hands-on implementation with GitHub Actions and Argo CD"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "CI/CD for ML goes beyond code. It is a unified workflow that validates data, tests models, packages artifacts, and deploys automatically—treating machine learning not as a standalone artifact but as a living part of a broader software ecosystem."
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Continuous Integration for ML](#2-continuous-integration-for-ml)
+   - 2.1. [Data CI: Validating Data](#21-data-ci-validating-data)
+   - 2.2. [Code CI: Testing Code](#22-code-ci-testing-code)
+   - 2.3. [Model CI: Testing Models and Quality](#23-model-ci-testing-models-and-quality)
+3. [Continuous Delivery for ML](#3-continuous-delivery-for-ml)
+   - 3.1. [Model Packaging and Serving](#31-model-packaging-and-serving)
+   - 3.2. [Automated Deployments](#32-automated-deployments)
+   - 3.3. [Deployment Strategies](#33-deployment-strategies)
+4. [Hands-on: Complete CI/CD Pipeline](#4-hands-on-complete-cicd-pipeline)
+   - 4.1. [Project Setup](#41-project-setup)
+   - 4.2. [DVC for Data and Model Versioning](#42-dvc-for-data-and-model-versioning)
+   - 4.3. [GitHub Actions Workflow](#43-github-actions-workflow)
+   - 4.4. [Argo CD for GitOps Deployment](#44-argo-cd-for-gitops-deployment)
+   - 4.5. [Complete Workflow](#45-complete-workflow)
+5. [Conclusion](#5-conclusion)
+
+---
+
+## 1. Introduction
+
+**In plain English:** CI/CD is like an automated assembly line for software. Instead of manually building, testing, and shipping each product, the assembly line automatically checks quality at each stage, packages the product, and delivers it to customers. For ML systems, this includes validating data, testing models, and deploying updated versions automatically.
+
+**In technical terms:** CI/CD stands for continuous integration and continuous delivery/deployment, which are standard DevOps practices that automate the software development lifecycle. CI focuses on automatically integrating code changes and running tests, while CD automates the release of those validated changes to testing or production environments. For ML, we extend this to include data validation, model testing, and automated retraining.
+
+**Why it matters:** Traditional CI/CD focuses on delivering code changes quickly and safely. With ML, we need to extend this to data and models too. Our pipelines must not only run code tests but also validate input data, retrain models, track model metrics, and then deploy or push those models. This automation ensures code quality, speeds up releases, and helps teams respond quickly to data drift and model degradation.
+
+<DiagramContainer>
+  <Row gap="large">
+    <Column flex={1}>
+      <Box padding="large" background={colors.blue} border>
+        <h4 style={{marginTop: 0}}>Traditional CI/CD</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Code integration</li>
+          <li>Unit and integration tests</li>
+          <li>Build artifacts</li>
+          <li>Deploy to production</li>
+        </ul>
+      </Box>
+    </Column>
+    <Column flex={1}>
+      <Box padding="large" background={colors.purple} border>
+        <h4 style={{marginTop: 0}}>ML CI/CD</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Data validation and versioning</li>
+          <li>Model training and testing</li>
+          <li>Model packaging and registration</li>
+          <li>Automated deployment with monitoring</li>
+        </ul>
+      </Box>
+    </Column>
+  </Row>
+</DiagramContainer>
+
+---
+
+## 2. Continuous Integration for ML
+
+**In plain English:** CI for ML is like quality control in a manufacturing process. Before a product goes to market, inspectors check raw materials (data), verify assembly processes (code), and test the final product (model). Only if everything passes does the product get approved for shipping.
+
+**In technical terms:** Continuous Integration for ML means automating the validation of everything upstream of deployment: data, code, and model. The goal is to catch problems early (at commit time) before a model is deployed. This involves data schema validation, code testing, model performance thresholds, and reproducibility checks.
+
+**Why it matters:** ML systems have additional failure modes beyond code bugs. Data can be corrupt, distributions can shift, and models can underperform. CI catches these issues before they reach production, preventing silent degradation and ensuring only validated artifacts are deployed.
+
+### 2.1. Data CI: Validating Data
+
+**In plain English:** Think of data CI as inspecting ingredients before cooking. If you are making a cake and the flour is moldy or the eggs are spoiled, you catch it before baking rather than discovering the problem when someone tastes the cake.
+
+**In technical terms:** In ML, data is essentially "code"—it defines model behavior. Therefore, integrating new data or data pipelines requires rigorous checks just like new code does. Data CI focuses on automatically testing data quality and detecting data drift as part of the integration process.
+
+**Why it matters:** Data bugs are just as harmful as code bugs. Schema changes, missing values, or distribution shifts can corrupt model training. Data CI prevents these issues from propagating downstream.
+
+<CardGrid columns={3}>
+  <Box padding="medium" background={colors.blue}>
+    <strong>Schema Validation</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Ensure columns exist, data types are correct, no critical nulls or out-of-range values
+    </div>
+  </Box>
+  <Box padding="medium" background={colors.green}>
+    <strong>Data Drift Checks</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Compare new training data against previous baseline to detect unintended shifts
+    </div>
+  </Box>
+  <Box padding="medium" background={colors.purple}>
+    <strong>Data Versioning</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Use DVC to track dataset versions linked to Git commits for reproducibility
+    </div>
+  </Box>
+</CardGrid>
+
+**Schema and quality checks with Pandera:**
+
+```python
+import pandas as pd
+import pandera as pa
+from pandera import Column, Check
+
+class TrainingDataSchema(pa.DataFrameModel):
+    feature1: float = pa.Field(gt=0, nullable=False)
+    feature2: int = pa.Field(ge=0, le=100, nullable=False)
+    label: int = pa.Field(isin=[0, 1], nullable=False)
+
+# Validate data
+try:
+    df = pd.read_csv("training_data.csv")
+    TrainingDataSchema.validate(df, lazy=True)
+    print("Validation passed!")
+except pa.errors.SchemaErrors as e:
+    print(f"Schema validation failed:\n{e.failure_cases}")
+```
+
+In a CI context, this test fails if data does not conform, catching upstream issues early rather than silently corrupting model training.
+
+### 2.2. Code CI: Testing Code
+
+**In plain English:** Code CI is like checking each component of a machine before assembly. You test the gears, verify the motor works, and ensure all parts fit together correctly. Only after everything passes inspection do you assemble the final product.
+
+**In technical terms:** Code continuous integration for ML looks much like traditional CI: run unit tests, enforce code style, and perform integration tests. However, the content of these tests is tailored to ML pipeline code, including feature engineering functions, data loaders, training loops, and inference logic.
+
+**Why it matters:** ML pipeline code is still code. Bugs in feature transformations, training scripts, or inference endpoints can cause silent failures or crashes. Code CI ensures that refactoring or new features do not break existing functionality.
+
+<StackDiagram
+  layers={[
+    {
+      label: 'Unit Tests',
+      color: colors.blue,
+      items: ['Test feature engineering functions', 'Test data loaders', 'Test custom loss functions']
+    },
+    {
+      label: 'Integration Tests',
+      color: colors.green,
+      items: ['Small-scale training run', 'End-to-end pipeline validation', 'Catch dimension mismatches']
+    },
+    {
+      label: 'Configuration Validation',
+      color: colors.purple,
+      items: ['Validate YAML/JSON configs', 'Check required fields exist', 'Pin dependency versions']
+    },
+    {
+      label: 'Property-Based Tests',
+      color: colors.orange,
+      items: ['Test invariants, not exact outputs', 'Example: normalized data has mean ~0', 'Example: probabilities sum to 1']
+    }
+  ]}
+  title="Code CI Layers"
+/>
+
+**Example: Small-scale training integration test:**
+
+```python
+import pytest
+import numpy as np
+from train import train_model
+
+def test_training_pipeline():
+    # Small synthetic dataset
+    X_train = np.random.rand(50, 10)
+    y_train = np.random.randint(0, 2, 50)
+
+    # Train for 1 epoch
+    model, loss = train_model(X_train, y_train, epochs=1)
+
+    # Assert loss decreased (basic sanity check)
+    assert loss < 1.0, "Training loss should be reasonable"
+    assert model is not None, "Model should be returned"
+```
+
+### 2.3. Model CI: Testing Models and Quality
+
+**In plain English:** Model CI is like testing a car before it leaves the factory. You check that it starts, accelerates properly, brakes work, and fuel efficiency meets standards. Only cars that pass all tests get shipped to dealerships.
+
+**In technical terms:** Beyond code and data, we need to continuously test the model artifact and its performance. This is where ML CI adds new types of tests not seen in standard software: performance metric thresholds, reproducibility tests, bias checks, and model artifact validation.
+
+**Why it matters:** A model that passes code tests can still perform poorly or have bias issues. Model CI introduces automated "gates" based on model evaluation. Instead of relying on humans to review every training run, CI fails fast if the model is not up to par.
+
+<ComparisonTable
+  headers={['Test Type', 'Purpose', 'Example']}
+  rows={[
+    [
+      'Performance Thresholds',
+      'Ensure model meets minimum quality standards',
+      'Assert validation accuracy ≥ 85%, or fail CI'
+    ],
+    [
+      'Reproducibility Tests',
+      'Verify training is deterministic given same seed',
+      'Train twice with same seed, compare outputs'
+    ],
+    [
+      'Bias and Fairness Checks',
+      'Detect disparities across protected groups',
+      'Compute metrics per demographic subgroup'
+    ],
+    [
+      'Model Artifact Checks',
+      'Validate model file size, dependencies, format',
+      'Ensure model.pkl < 100MB, can be loaded and predicts'
+    ]
+  ]}
+/>
+
+**Example: Performance threshold test:**
+
+```python
+from sklearn.metrics import accuracy_score
+
+def test_model_performance():
+    # Load validation data
+    X_val, y_val = load_validation_data()
+
+    # Load trained model
+    model = load_model("model.pkl")
+
+    # Predict and evaluate
+    y_pred = model.predict(X_val)
+    accuracy = accuracy_score(y_val, y_pred)
+
+    # Assert threshold
+    assert accuracy >= 0.85, f"Model accuracy {accuracy} below threshold 0.85"
+```
+
+---
+
+## 3. Continuous Delivery for ML
+
+**In plain English:** CD is like an automated shipping system. Once a product passes quality control, the system automatically packages it, labels it, and sends it to the distribution center. For ML, this means packaging the model in a container, pushing it to a registry, and deploying it to production automatically.
+
+**In technical terms:** Continuous Delivery (CD) for ML takes the artifacts and results from CI (code, data, model that passed tests) and automates the process of packaging, releasing, and deploying them. ML CD handles releasing not just application code but also new model versions, often integrating with specialized infrastructure like model serving platforms or orchestration on Kubernetes.
+
+**Why it matters:** Manual deployments are slow, error-prone, and do not scale. CD automates deployment, ensuring that validated models reach production quickly and consistently. It enables rapid iteration and response to data drift or model degradation.
+
+### 3.1. Model Packaging and Serving
+
+**In plain English:** Packaging is like putting a product in a shipping box with instructions. The box contains everything needed to use the product. For ML models, this means bundling the model file with all necessary code, dependencies, and configurations in a Docker container.
+
+**In technical terms:** After a model is trained and validated in CI, the next step is to package it for deployment. Packaging involves bundling the model with all code and dependencies needed to serve it (e.g., in a REST API or streaming context). The packaged artifact is typically a Docker image.
+
+**Why it matters:** Proper packaging ensures that by the time we deploy, we have an artifact that encapsulates everything needed to run the model in production. This gives us a consistent, reproducible deployment unit.
+
+<ProcessFlow
+  steps={[
+    {
+      label: 'Train and Validate',
+      description: 'Model passes CI tests',
+      color: colors.blue
+    },
+    {
+      label: 'Create Dockerfile',
+      description: 'Bundle model, code, dependencies',
+      color: colors.green
+    },
+    {
+      label: 'Build Docker Image',
+      description: 'docker build -t model:v1',
+      color: colors.purple
+    },
+    {
+      label: 'Tag with Version',
+      description: 'Use Git commit SHA or semantic version',
+      color: colors.orange
+    },
+    {
+      label: 'Push to Registry',
+      description: 'Docker Hub, ECR, or GCR',
+      color: colors.red
+    }
+  ]}
+/>
+
+**Example Dockerfile:**
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY app.py model.pkl requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 80
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80"]
+```
+
+### 3.2. Automated Deployments
+
+**In plain English:** Automated deployment is like having a robotic warehouse system that receives packages, scans them, and places them on the correct shelves automatically. For ML, this means automatically deploying new model versions to Kubernetes clusters whenever CI passes.
+
+**In technical terms:** Once we have our model server image ready, continuous deployment takes it and deploys it to the target environment (cloud VM, serverless function, or most commonly, a Kubernetes cluster). Typically, a pull-based (GitOps) approach has the cluster watch for changes using tools like Argo CD.
+
+**Why it matters:** Manual deployments are slow and error-prone. Automated deployments ensure that every validated change reaches production quickly and consistently. GitOps provides a declarative, auditable deployment workflow.
+
+<DiagramContainer>
+  <Box padding="medium" background={colors.blue} border>
+    <strong>GitOps Workflow</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      1. CI builds Docker image and pushes to registry
+      <br/>
+      2. CI updates Kubernetes manifest with new image tag
+      <br/>
+      3. CI commits manifest change to Git
+      <br/>
+      4. Argo CD detects Git change and syncs cluster
+      <br/>
+      5. Kubernetes pulls new image and rolls out update
+    </div>
+  </Box>
+</DiagramContainer>
+
+### 3.3. Deployment Strategies
+
+**In plain English:** Deployment strategies are like different ways to update a restaurant menu. You can replace the entire menu overnight (blue-green), or introduce new dishes to a few tables first (canary), or gradually replace dishes one by one (rolling). Each strategy has trade-offs between speed, risk, and complexity.
+
+**In technical terms:** Different deployment strategies minimize risk and enable rollbacks if issues arise. The most common strategies are canary deployment (gradual traffic shift) and blue-green deployment (instant switch with parallel environments).
+
+**Why it matters:** Deploying a new model version always carries risk. Deployment strategies minimize the blast radius of problematic models and enable quick rollbacks if performance degrades.
+
+<ComparisonTable
+  headers={['Strategy', 'How It Works', 'Use Case']}
+  rows={[
+    [
+      'Canary Deployment',
+      'New model receives small % of traffic (e.g., 5%), gradually increase if metrics stable',
+      'Minimize blast radius, validate in production with real traffic'
+    ],
+    [
+      'Blue-Green Deployment',
+      'Full parallel environment with new model, instant traffic switch once validated',
+      'Instant rollbacks, zero-downtime deployments'
+    ],
+    [
+      'Rolling Update',
+      'Gradually replace old pods with new ones',
+      'Standard Kubernetes deployment, no extra infrastructure'
+    ]
+  ]}
+/>
+
+---
+
+## 4. Hands-on: Complete CI/CD Pipeline
+
+We will build a complete CI/CD pipeline using GitHub Actions, DVC, Docker, Kubernetes, and Argo CD.
+
+### 4.1. Project Setup
+
+**Project structure:**
+
+```
+ml-ci-cd-demo/
+├── data/
+│   └── data.csv
+├── model/
+│   └── model.pkl
+├── app.py              # FastAPI inference app
+├── train.py            # Training script
+├── Dockerfile          # Container definition
+├── requirements.txt    # Python dependencies
+├── k8s/
+│   └── manifest.yaml   # Kubernetes Deployment + Service
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml   # GitHub Actions workflow
+└── argo.yaml           # Argo CD Application
+```
+
+### 4.2. DVC for Data and Model Versioning
+
+**Initialize DVC:**
+
+```bash
+git init
+dvc init
+```
+
+**Track data and model:**
+
+```bash
+dvc add data/data.csv
+dvc add model/model.pkl
+git add data/data.csv.dvc model/model.pkl.dvc .gitignore
+git commit -m "Track data and model with DVC"
+```
+
+**Configure S3 remote:**
+
+```bash
+aws s3 mb s3://ml-ci-cd-demo-bucket
+dvc remote add -d myremote s3://ml-ci-cd-demo-bucket
+dvc push
+```
+
+### 4.3. GitHub Actions Workflow
+
+**Create `.github/workflows/ci-cd.yml`:**
+
+```yaml
+name: ML CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsDVCAndEKSRole
+          aws-region: us-east-1
+
+      - name: Install DVC and pull artifacts
+        run: |
+          pip install dvc[s3]
+          dvc pull
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/ml-api:${{ github.sha }} .
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/ml-api:${{ github.sha }}
+
+      - name: Update Kubernetes manifest
+        run: |
+          sed -i "s|image:.*|image: ${{ secrets.DOCKERHUB_USERNAME }}/ml-api:${{ github.sha }}|" k8s/manifest.yaml
+
+      - name: Commit updated manifest
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add k8s/manifest.yaml
+          git commit -m "Update image to ${{ github.sha }}"
+          git push
+```
+
+**What this workflow does:**
+
+<ProcessFlow
+  steps={[
+    {
+      label: 'Trigger on Push',
+      description: 'Every push to main branch',
+      color: colors.blue
+    },
+    {
+      label: 'AWS Authentication',
+      description: 'OIDC token to assume IAM role',
+      color: colors.green
+    },
+    {
+      label: 'Pull DVC Artifacts',
+      description: 'Get latest data and model from S3',
+      color: colors.purple
+    },
+    {
+      label: 'Build Docker Image',
+      description: 'Tag with commit SHA',
+      color: colors.orange
+    },
+    {
+      label: 'Push to DockerHub',
+      description: 'Make image available',
+      color: colors.red
+    },
+    {
+      label: 'Update Manifest',
+      description: 'Replace image tag in k8s/manifest.yaml',
+      color: colors.blue
+    },
+    {
+      label: 'Commit to Git',
+      description: 'Trigger Argo CD sync',
+      color: colors.green
+    }
+  ]}
+/>
+
+### 4.4. Argo CD for GitOps Deployment
+
+**Install Argo CD on EKS:**
+
+```bash
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+**Create Argo CD Application (`argo.yaml`):**
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ml-api
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/username/ml-ci-cd-demo
+    targetRevision: main
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+Apply:
+
+```bash
+kubectl apply -f argo.yaml
+```
+
+### 4.5. Complete Workflow
+
+**Full flow when you push code:**
+
+<ProcessFlow
+  steps={[
+    {
+      label: 'Developer Pushes',
+      description: 'git push to main branch',
+      color: colors.blue
+    },
+    {
+      label: 'GitHub Actions Runs',
+      description: 'Pulls data/model, builds image, pushes to DockerHub',
+      color: colors.green
+    },
+    {
+      label: 'Update Manifest',
+      description: 'Changes image tag in k8s/manifest.yaml',
+      color: colors.purple
+    },
+    {
+      label: 'Commit Manifest',
+      description: 'Pushes updated manifest to Git',
+      color: colors.orange
+    },
+    {
+      label: 'Argo CD Detects',
+      description: 'Sees manifest change in Git',
+      color: colors.red
+    },
+    {
+      label: 'Argo CD Syncs',
+      description: 'Deploys updated pods to Kubernetes',
+      color: colors.blue
+    },
+    {
+      label: 'Kubernetes Rolls Out',
+      description: 'Pulls new image, updates deployment',
+      color: colors.green
+    }
+  ]}
+/>
+
+**Test the deployment:**
+
+```bash
+# Get service URL
+kubectl get svc
+
+# Access API
+curl http://<EXTERNAL-IP>/predict -X POST -H "Content-Type: application/json" -d '{"x": 25}'
+```
+
+**Trigger redeployment:**
+
+```bash
+# Update data
+echo "new data" >> data/data.csv
+
+# Retrain model
+python train.py
+
+# Track with DVC
+dvc add data/data.csv model/model.pkl
+dvc push
+
+# Commit and push
+git add data/data.csv.dvc model/model.pkl.dvc
+git commit -m "Update data and model"
+git push
+
+# GitHub Actions automatically rebuilds and deploys!
+```
+
+---
+
+## 5. Conclusion
+
+In this chapter, we understood CI/CD for machine learning systems and built a complete, automated pipeline end-to-end.
+
+We began by understanding continuous integration for ML: validating data with schema checks and drift detection, testing code with unit and integration tests, and enforcing model quality with performance thresholds.
+
+We then transitioned into continuous delivery for ML, where we learned how trained models evolve into deployable artifacts through Docker containers, how automated deployments work via GitOps, and how deployment strategies (canary, blue-green) minimize risk.
+
+Finally, we tied everything together into a unified workflow using DVC for data/model versioning, GitHub Actions for CI/CD automation, Docker for containerization, and Argo CD for GitOps-driven Kubernetes deployment.
+
+**Key Takeaways:**
+- CI/CD for ML extends beyond code to include data and models
+- GitOps provides a clean, auditable, production-grade deployment workflow
+- Automation from data changes to production deployment is achievable and essential
+- A well-architected ML pipeline unifies software engineering rigor with ML dynamics
+
+This chapter marks the end of the MLOps phase of this series. Moving ahead, we will continue with LLMOps, real-world case studies from industry, and special considerations for large language models.
+
+The aim, as always, is to help you cultivate a mature, system-centric mindset—one that treats machine learning not as a standalone artifact but as a living part of a broader software ecosystem.
+
+:::info Recommended Reading
+- [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [Argo CD Documentation](https://argo-cd.readthedocs.io/)
+- [DVC Documentation](https://dvc.org/doc)
+- [AWS EKS Best Practices](https://aws.github.io/aws-eks-best-practices/)
+:::

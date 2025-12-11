@@ -1,0 +1,535 @@
+---
+sidebar_position: 1
+title: "Background and Foundations for ML in Production"
+description: "Understanding MLOps fundamentals, system-level concerns, and the complete machine learning lifecycle from development to production"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# The Full MLOps Blueprint: Background and Foundations for ML in Production
+
+> *"The ML model or algorithm itself is only a small part of a production ML system. In real-world deployments, a lot of 'glue' is needed around the model to make a complete system."*
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Why MLOps Matters](#why-mlops-matters)
+   - 2.1. [The Evolution of MLOps](#the-evolution-of-mlops)
+   - 2.2. [Problems Without MLOps](#problems-without-mlops)
+3. [MLOps vs. DevOps and Traditional Software Systems](#mlops-vs-devops-and-traditional-software-systems)
+   - 3.1. [Experimental vs. Deterministic Development](#experimental-vs-deterministic-development)
+   - 3.2. [Testing Complexity](#testing-complexity)
+   - 3.3. [Deployment and Updates](#deployment-and-updates)
+   - 3.4. [Production Performance Degradation](#production-performance-degradation)
+   - 3.5. [Lifecycle Complexity](#lifecycle-complexity)
+4. [System-Level Concerns in Production ML](#system-level-concerns-in-production-ml)
+   - 4.1. [Latency and Throughput](#latency-and-throughput)
+   - 4.2. [Data and Concept Drift](#data-and-concept-drift)
+   - 4.3. [Feedback Loops](#feedback-loops)
+   - 4.4. [Reproducibility](#reproducibility)
+5. [The Machine Learning System Lifecycle](#the-machine-learning-system-lifecycle)
+6. [Conclusion](#conclusion)
+
+## Introduction
+
+So, you have trained your machine learning model and tested its inference capabilities.
+
+What comes next?
+
+Is your job done?
+
+Not really.
+
+**In plain English:** Think of building an ML model like creating a recipe in your kitchen. Perfecting the recipe is just the start - you still need to figure out sourcing ingredients, scaling production, quality control, and serving customers consistently.
+
+**In technical terms:** Model development represents only a small fraction of a production ML system. The majority of effort involves data pipelines, feature engineering, model serving infrastructure, monitoring, and operational maintenance.
+
+**Why it matters:** Without proper MLOps, even highly accurate models can quickly become unreliable or harmful in production. Organizations that master MLOps can iterate faster, deploy confidently, and maintain model quality over time.
+
+If you plan to deploy the model in a real-world application, there are many additional steps to consider. This is where MLOps becomes essential, helping you transition from model development to a production-ready system.
+
+Machine Learning Operations (MLOps) in production is about integrating ML models into real-world software systems. It is where machine learning meets software engineering, DevOps, and data engineering.
+
+The goal is to reliably deliver ML-driven features (like recommendation engines, fraud detectors, voice assistants, etc.) to end-users at scale.
+
+<DiagramContainer title="ML System Components">
+  <StackDiagram
+    layers={[
+      { label: 'ML Code', size: 1, color: colors.blue },
+      { label: 'Data Collection & Processing', size: 3, color: colors.green },
+      { label: 'Configuration & Infrastructure', size: 2, color: colors.orange },
+      { label: 'Serving & Monitoring', size: 2, color: colors.purple },
+      { label: 'Testing & Automation', size: 2, color: colors.pink }
+    ]}
+  />
+</DiagramContainer>
+
+> **Insight**
+>
+> Only a tiny fraction of an ML system is the ML code itself. The vast surrounding infrastructure for data, configuration, automation, serving, and monitoring is much larger and more complex.
+
+We are starting this MLOps and LLMOps crash course to provide you with a thorough explanation and systems-level thinking to build AI models for production settings.
+
+Just as the MCP crash course, each chapter will clearly explain necessary concepts, provide examples, diagrams, and implementations.
+
+:::warning Prerequisites
+This course assumes a solid foundation in Python programming, probability theory, software engineering and testing practices, and implementational understanding of machine learning algorithms, techniques, and evaluation metrics.
+:::
+
+## Why MLOps Matters
+
+Building a highly accurate model in a notebook is just the beginning of the journey.
+
+Once deployed, ML models face changing real-world conditions: users may behave differently over time, data may drift, and model performance can decay.
+
+**In plain English:** Imagine building a weather prediction system that works perfectly on historical data. But weather patterns change, new sensors get added, and seasonal variations occur. Without maintenance, your predictions become less reliable over time.
+
+**In technical terms:** Model quality does not remain static after deployment. The real world changes through user behavior shifts, adversarial attacks, or simple distribution drift between training and production data.
+
+**Why it matters:** In the absence of proper operations, an accurate model can quickly become unreliable or even harmful when serving customers. Inadequate MLOps can lead to stale or incorrect models lingering in production, causing bad predictions that hurt the business.
+
+<ProcessFlow
+  steps={[
+    { label: 'Model Training', description: 'High accuracy on test set' },
+    { label: 'Deployment', description: 'Initial production performance' },
+    { label: 'Data Drift', description: 'Distribution changes over time' },
+    { label: 'Performance Decay', description: 'Accuracy decreases' },
+    { label: 'Monitoring Alert', description: 'MLOps detects issues' },
+    { label: 'Retraining', description: 'Model updated with new data' }
+  ]}
+/>
+
+### The Evolution of MLOps
+
+:::tip Historical Context
+The term MLOps was popularized around 2015 by a Google paper, "Hidden Technical Debt in Machine Learning Systems." The paper highlighted how quickly ML systems accumulate maintenance challenges like data dependencies, entangled code, and feedback loops that compound like interest (technical debt) if not managed.
+:::
+
+### Problems Without MLOps
+
+Before the advent of mature MLOps, building and updating ML systems was slow and laborious, requiring significant resources and cross-team coordination for each new model.
+
+<CardGrid columns={3}>
+  <Box color={colors.red}>
+    <h4>Slow Time to Market</h4>
+    <p>Weeks or months to deploy a new model due to ad-hoc processes and lengthy hand-offs</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Fragile Pipelines</h4>
+    <p>Manual steps that easily break and are difficult to debug</p>
+  </Box>
+  <Box color={colors.yellow}>
+    <h4>Scaling Issues</h4>
+    <p>Hard to handle growing data or model complexity without automation</p>
+  </Box>
+</CardGrid>
+
+Effective MLOps addresses these risks by establishing processes to continuously monitor, evaluate, and improve models after deployment.
+
+Overall, MLOps can be thought of as "DevOps for ML," but more nuanced. It is a set of practices, tools, and team processes that aim to build, deploy, and maintain machine learning models in production reliably and efficiently.
+
+This includes collaboration between data scientists and engineers, automation of ML pipelines, and applying software best practices to ML, like testing, version control, continuous integration, etc.
+
+## MLOps vs. DevOps and Traditional Software Systems
+
+Building and deploying ML systems is in many ways an extension of traditional software engineering, but there are important differences to highlight.
+
+Development operations (also called DevOps) refers to the best practices that software teams use to shorten development cycles, maintain quality through continuous integration/deployment (CI/CD), and reliably operate services.
+
+MLOps borrows these principles but extends them to deal with the unique challenges of ML. Let's compare how an ML production pipeline differs from a standard software project:
+
+### Experimental vs. Deterministic Development
+
+Writing traditional software is typically a deterministic process, but in ML development, the process is highly experimental and data-driven.
+
+**In plain English:** Traditional coding is like following a construction blueprint - if you build it correctly, it works as designed. ML is more like experimenting in a lab - you try different approaches until you find what works best for your specific data.
+
+**In technical terms:** You try multiple algorithms, features, and hyperparameters to find what works best. The code itself is not necessarily buggy, but the model might simply not be accurate enough to be deployed.
+
+**Why it matters:** The iterative nature of model training means versioning data and models (not just code) becomes critical, something that traditional DevOps does not cover by default.
+
+### Testing Complexity
+
+In standard software, you write unit tests and integration tests to verify functionality. ML systems require additional testing: not only do we need unit tests for our data preprocessing steps and any other code, but we also need to validate data quality and test the trained model's performance.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Traditional Software Testing</h4>
+    <ul>
+      <li>Unit tests for code logic</li>
+      <li>Integration tests for components</li>
+      <li>Performance tests for speed</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>ML System Testing</h4>
+    <ul>
+      <li>All traditional tests</li>
+      <li>Data validation tests</li>
+      <li>Model performance tests</li>
+      <li>Data leakage tests</li>
+      <li>Training/serving skew tests</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::caution Data Leakage
+Data leakage occurs when information from outside the training dataset is unintentionally used to train the model, leading to overly optimistic performance estimates during testing. This can happen if data from the future, or information that would not be available at the time of prediction, is used during training. It undermines the model's ability to generalize to new, unseen data, resulting in poor real-world performance.
+:::
+
+### Deployment and Updates
+
+In traditional software CI/CD, deploying a new version of an application is a relatively straightforward push of code through staging to production.
+
+In ML, a "new version" of the system often means retraining a model with new data or updated parameters, which itself is a multi-step pipeline.
+
+**In plain English:** Deploying traditional software is like releasing a new version of an app. Deploying ML systems is like releasing a new app version AND updating all the knowledge it has learned from past data.
+
+**In technical terms:** Deployment is not just shipping a binary; it may involve a whole automated pipeline that periodically retrains and deploys models. For example, retrain a model nightly with the latest data and then serve it.
+
+**Why it matters:** Automating this pipeline is a major focus of MLOps, which introduces ideas like continuous training (CT) in addition to CI/CD.
+
+:::tip Continuous Training
+Continuous training means the system can trigger retraining when new data arrives or when performance degrades, closing the loop between data and deployment.
+:::
+
+### Production Performance Degradation
+
+In software services, performance issues typically come from code inefficiencies or infrastructure problems.
+
+In ML services, even if the code is perfectly efficient, the model's predictive performance can degrade over time due to data drift (changes in the input data distribution) or concept drift (changes in the underlying relationship the model is trying to learn).
+
+<ComparisonTable
+  headers={['Aspect', 'Traditional Software', 'ML Systems']}
+  rows={[
+    ['Performance Issues', 'Code bugs, infrastructure', 'Data drift, concept drift, model staleness'],
+    ['Monitoring Focus', 'Uptime, latency, errors', 'Model accuracy, data distribution, prediction quality'],
+    ['Update Frequency', 'When code changes', 'When data changes OR code changes'],
+    ['Testing', 'Functional correctness', 'Statistical performance + functional correctness']
+  ]}
+/>
+
+### Lifecycle Complexity
+
+A traditional software system's lifecycle is mostly linear, with fewer iterations compared to ML systems. An ML system's lifecycle is fully cyclical. After deployment, you often loop back to data collection and model improvement.
+
+For instance, user interactions in production can generate new labeled examples (based on feedback) that feed into the next training iteration. This introduces a feedback loop wherein the system continuously evolves.
+
+**In plain English:** Think of traditional software like building a bridge - once built, it mostly stays the same. ML systems are like a garden - you need to continuously tend to it, observe how it grows, and adapt to changing seasons.
+
+**In technical terms:** From an operations perspective, handling this loop means the platform should support logging predictions, collecting outcomes, updating datasets, and triggering new training runs, often referred to as the ML flywheel or data flywheel.
+
+**Why it matters:** Advanced MLOps setups enable this loop to be partially or fully automated, often under the term continuous delivery for ML (also called CD4ML), whereas simpler setups may do it manually with periodic model refreshes.
+
+### Key Differences at a Glance
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Primary Artifacts</h4>
+    <p><strong>Software:</strong> Code binaries</p>
+    <p><strong>MLOps:</strong> Code, trained model artifacts, and data pipelines</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Versioning Units</h4>
+    <p><strong>Software:</strong> Code (via Git, etc.)</p>
+    <p><strong>MLOps:</strong> Code, data, and models</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Failure Modes</h4>
+    <p><strong>Software:</strong> Bugs in code</p>
+    <p><strong>MLOps:</strong> Bugs AND/OR model quality issues</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Monitoring</h4>
+    <p><strong>Software:</strong> Service health (latency, errors, CPU/memory)</p>
+    <p><strong>MLOps:</strong> Service health PLUS model predictions, distribution shifts, accuracy</p>
+  </Box>
+</CardGrid>
+
+Understanding these differences sets the stage for designing an effective ML production system.
+
+## System-Level Concerns in Production ML
+
+When transitioning an ML model from the lab to production, several system-level concerns come to the forefront. These are aspects of the system's behavior and environment that can significantly affect performance and reliability, beyond just model accuracy.
+
+### Latency and Throughput
+
+**In plain English:** Latency is how fast your system responds. Throughput is how many requests it can handle at once. It is like a restaurant - latency is how long it takes to serve one customer, throughput is how many customers you can serve per hour.
+
+**In technical terms:** Latency refers to the time it takes for the system to produce a prediction or response after receiving an input. Throughput refers to how many predictions/requests the system can handle per unit time (e.g., queries per second).
+
+**Why it matters:** In many production contexts, latency and throughput are as important as, or even more important than, the model's raw accuracy. Users expect near-instant responses; every 100ms of delay can measurably reduce engagement. Amazon famously found that every 100ms of extra latency cost them 1% in sales.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Latency Optimization Strategies</h4>
+    <ul>
+      <li>Simplify model architecture</li>
+      <li>Use model quantization</li>
+      <li>Apply model distillation</li>
+      <li>Implement caching strategies</li>
+      <li>Use faster hardware (GPUs, TPUs)</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Throughput Optimization Strategies</h4>
+    <ul>
+      <li>Batch processing</li>
+      <li>Horizontal scaling</li>
+      <li>Load balancing</li>
+      <li>Asynchronous processing</li>
+      <li>Choose appropriate deployment architecture</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::tip Performance Trade-off
+A model that is slightly less accurate but ten times faster may serve the business better than the ultra-accurate but slow model (depending on the application).
+:::
+
+> **Insight**
+>
+> When processing queries one at a time, higher latency means lower throughput. When processing queries in batches, however, higher latency might also mean higher throughput.
+
+### Data and Concept Drift
+
+Once an ML model is deployed, its performance can deteriorate over time due to drift.
+
+**In plain English:** Imagine training a model to recognize fashion trends in summer, then using it in winter. The clothes people wear change (data drift). Or imagine the definition of "trendy" itself changes (concept drift). Your model becomes outdated.
+
+**In technical terms:** Data drift usually refers to changes in the input data distribution, while concept drift refers to changes in the relationship between inputs and outputs (the underlying concept the model is trying to predict).
+
+**Why it matters:** If drift goes unidentified or unaddressed, the model's predictions can become wrong and possibly harmful. The longer the drift goes on, the worse it can get. In regulated industries, professionals are often required to monitor for drift as part of model risk management.
+
+<ComparisonTable
+  headers={['Type', 'Definition', 'Example']}
+  rows={[
+    ['Data Drift', 'Input distribution changes', 'Image model trained on summer photos struggles with winter photos'],
+    ['Concept Drift', 'Input-output relationship changes', 'Customer churn signals change after pandemic']
+  ]}
+/>
+
+#### Handling Drift
+
+<ProcessFlow
+  steps={[
+    { label: 'Monitor', description: 'Track statistical properties of inputs' },
+    { label: 'Detect', description: 'Identify significant distribution shifts' },
+    { label: 'Alert', description: 'Trigger notifications when thresholds exceeded' },
+    { label: 'Respond', description: 'Retrain or update model' }
+  ]}
+/>
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Monitoring Strategies</h4>
+    <ul>
+      <li>Track feature distributions</li>
+      <li>Use statistical tests (PSI, K-S test)</li>
+      <li>Monitor prediction distributions</li>
+      <li>Compare against training data</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Response Strategies</h4>
+    <ul>
+      <li>Periodic retraining</li>
+      <li>Online learning</li>
+      <li>Human-in-the-loop review</li>
+      <li>Fallback to simpler systems</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+### Feedback Loops
+
+A fascinating and tricky aspect of some ML systems is that they can influence their own future input data. This is known as a feedback loop.
+
+**In plain English:** Imagine a news app that learns what you like. It shows you more of what you click on, so you only see those topics, and it never learns you might like other things. The system reinforces its own biases.
+
+**In technical terms:** It happens when the model's predictions or outputs impact the environment or user behavior, which then generates new data that the model will see later.
+
+**Why it matters:** Feedback loops can bias the data, reinforce certain behaviors, or even cause instability if not managed. They create a self-reinforcing pattern that can narrow the model's perspective or degrade quality over time.
+
+<DiagramContainer title="Feedback Loop Example">
+  <ProcessFlow
+    steps={[
+      { label: 'Model Prediction', description: 'System recommends content A' },
+      { label: 'User Interaction', description: 'User clicks on content A' },
+      { label: 'Data Collection', description: 'System records preference for A' },
+      { label: 'Model Update', description: 'Model learns to prefer A more' },
+      { label: 'Reinforcement', description: 'Cycle continues, ignoring alternatives' }
+    ]}
+  />
+</DiagramContainer>
+
+#### Managing Feedback Loops
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Explore-Exploit Trade-off</h4>
+    <p>Inject randomness or novelty instead of always exploiting current best guess</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Debiasing Data</h4>
+    <p>Use counterfactual analysis or causal inference to adjust for model influence</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Simulations</h4>
+    <p>Run A/B tests or simulations before full deployment</p>
+  </Box>
+</CardGrid>
+
+:::warning Advanced Topic
+Feedback loops border on the area of causal ML and reinforcement learning. When your model's output influences future inputs, be cautious. Monitor not just the model's performance, but also secondary metrics that can indicate a feedback loop.
+:::
+
+### Reproducibility
+
+Reproducibility means that you (or someone else, or a process) can reliably recreate the results of a model or pipeline.
+
+**In plain English:** If you bake a cake today and it is delicious, reproducibility means you can bake the exact same cake tomorrow using the same recipe, ingredients, and process.
+
+**In technical terms:** Whether it is training a model to get the same accuracy, or generating the same prediction given the same input at a later time, reproducibility ensures consistent and verifiable results.
+
+**Why it matters:** Reproducibility is fundamental for collaboration, debugging, consistency between environments, and regulatory compliance.
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Debugging</h4>
+    <p>When something goes wrong, trace the cause back to specific code, data, and parameters</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Consistency</h4>
+    <p>Ensure models behave the same way across development and production environments</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Collaboration</h4>
+    <p>Team members can share and build upon each other's work reliably</p>
+  </Box>
+</CardGrid>
+
+#### Achieving Reproducibility
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Version Control Everything</h4>
+    <ul>
+      <li>Code (Git)</li>
+      <li>Data (DVC, data versioning tools)</li>
+      <li>Model artifacts (model registry)</li>
+      <li>Environment (Docker, containers)</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Control Randomness</h4>
+    <ul>
+      <li>Fix random seeds</li>
+      <li>Document environment settings</li>
+      <li>Use containerization</li>
+      <li>Test for reproducibility</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Absolute reproducibility (bit-for-bit) can sometimes be unnecessarily strict. Often, we care about reproducing the performance or behavior within a tolerance. But as a baseline, you should be able to rerun an entire pipeline and get comparable results.
+
+## The Machine Learning System Lifecycle
+
+When deploying an ML model to production, it is useful to think in terms of an end-to-end lifecycle or pipeline.
+
+<ProcessFlow
+  steps={[
+    { label: 'Project Scoping', description: 'Define problem and success criteria' },
+    { label: 'Data Processing', description: 'Collect, clean, and prepare data' },
+    { label: 'Modeling', description: 'Train and evaluate models' },
+    { label: 'Deployment', description: 'Deploy to production' },
+    { label: 'Monitoring', description: 'Track performance and drift' },
+    { label: 'Improvement', description: 'Update and retrain (loop back)' }
+  ]}
+/>
+
+### Lifecycle Stages
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>1. Project Scoping</h4>
+    <p>Decide if an ML-based solution is appropriate for the problem and define success criteria</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>2. Data Processing</h4>
+    <p><strong>Ingestion:</strong> Gather data from various sources</p>
+    <p><strong>Preparation:</strong> Clean, normalize, join, create features</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>3. Modeling</h4>
+    <p><strong>Training:</strong> Iteratively train and tune models</p>
+    <p><strong>Evaluation:</strong> Assess performance on validation data</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>4. Deployment</h4>
+    <p>Expose model via API service, embed in application, or deploy to edge devices</p>
+  </Box>
+  <Box color={colors.pink}>
+    <h4>5. Monitoring</h4>
+    <p>Track operational metrics and predictive performance on real data</p>
+  </Box>
+  <Box color={colors.yellow}>
+    <h4>6. Maintenance</h4>
+    <p>Update models based on monitoring, new data, or changing requirements</p>
+  </Box>
+</CardGrid>
+
+:::tip Iterative Nature
+These steps are not strictly linear. It is an iterative cycle. After deployment, you might discover through monitoring that the model's performance is degrading, which prompts you to go back to data collection or model development to improve it.
+:::
+
+> **Insight**
+>
+> This ongoing cycle is what we mean by the ML lifecycle or "ML flywheel." Many companies aim to shorten this cycle and make it as automated as possible, to continuously deliver improvements to the model (akin to continuous delivery in software).
+
+## Conclusion
+
+With this foundational article, we have taken the first step into understanding what MLOps really entails, beyond the model itself and into the broader system it lives in.
+
+We established why MLOps matters, how it diverges from traditional DevOps, and the various system-level concerns that shape production-ready ML. We also walked through the typical lifecycle of an ML system, emphasizing its cyclical and evolving nature.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Mindset Shift</h4>
+    <p>ML is not a model-centric exercise but a systems engineering discipline, where reproducibility, automation, and monitoring are first-class citizens</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Core Principles</h4>
+    <p>MLOps = DevOps + Data + Models, requiring unique approaches to versioning, testing, deployment, and monitoring</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>System Concerns</h4>
+    <p>Latency, throughput, drift, feedback loops, and reproducibility are critical to production success</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Lifecycle Thinking</h4>
+    <p>ML systems are cyclical, not linear. Continuous improvement and monitoring are essential</p>
+  </Box>
+</CardGrid>
+
+### What's Next
+
+As we move forward in this series, upcoming chapters will dive into:
+
+- Deep dive into ML lifecycle
+- Real-world case studies from industry
+- Hands-on tooling for versioning and reproducibility
+- Monitoring for performance
+- Special considerations for LLMOps
+- End-to-end projects
+
+:::tip Course Philosophy
+While this series will certainly include hands-on practical simulations wherever necessary, it is the underlying theory that will serve as the backbone. Tools may evolve or differ, but the core principles and approaches to building robust, production-ready ML systems remain consistent.
+:::
+
+Our primary goal is to bridge the knowledge and understanding gap between experimentation and production, to help you develop a mature mindset and equip you with the general and adaptable framework needed for building ML/AI systems that last.

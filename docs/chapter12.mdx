@@ -1,0 +1,953 @@
+---
+sidebar_position: 12
+title: "Model Deployment—Part B"
+description: "Deep dive into Kubernetes for ML deployment: architecture, control plane components, worker nodes, declarative configuration, and hands-on orchestration."
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "Kubernetes automates the complexity of managing containers across many machines: scheduling, scaling, healing, and routing traffic."
+
+## Table of Contents
+
+1. [Prerequisites: Cloud-Native Foundations](#1-prerequisites-cloud-native-foundations)
+   1. [Containers and Images](#11-containers-and-images)
+   2. [Microservices Architecture](#12-microservices-architecture)
+   3. [Immutable Infrastructure](#13-immutable-infrastructure)
+2. [Kubernetes Introduction](#2-kubernetes-introduction)
+   1. [Why Kubernetes for ML?](#21-why-kubernetes-for-ml)
+   2. [Core Features](#22-core-features)
+3. [Kubernetes Architecture](#3-kubernetes-architecture)
+   1. [Cluster Components](#31-cluster-components)
+   2. [Control Plane Deep Dive](#32-control-plane-deep-dive)
+   3. [Worker Node Components](#33-worker-node-components)
+4. [Core Abstractions](#4-core-abstractions)
+5. [Hands-On: Kubernetes in Action](#5-hands-on-kubernetes-in-action)
+
+## 1. Prerequisites: Cloud-Native Foundations
+
+### 1.1. Containers and Images
+
+**In plain English:** Think of a container image as a frozen pizza (blueprint) and a container as the pizza after you bake it (running instance). The image contains all the instructions and ingredients, while the container is the actual, edible result. You can bake many pizzas from the same frozen pizza blueprint.
+
+**In technical terms:** A container image is a lightweight, static, immutable package containing code, runtime, libraries, and configuration. A container is a running, executable instance of that image, functioning as an isolated process.
+
+**Why it matters:** Containers solve the dependency hell problem. Different applications with conflicting dependencies can run reliably on the same host without interference. This isolation is the foundation of microservices and Kubernetes orchestration.
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>Container Image</strong>
+      <br /><br />
+      Read-only template (blueprint)
+      <br />
+      Contains: code, dependencies, OS libraries
+      <br />
+      Stored in registries (Docker Hub, ECR, GCR)
+      <br />
+      Versioned with tags (v1.0, v1.1, latest)
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>Container (Running Instance)</strong>
+      <br /><br />
+      Active, isolated process
+      <br />
+      Runs from image blueprint
+      <br />
+      Has its own filesystem, network, process space
+      <br />
+      Ephemeral: can be stopped, destroyed, replaced
+    </Box>
+  </Column>
+</Row>
+
+**Analogy to Object-Oriented Programming:**
+
+```
+Class (Image)          →  Object/Instance (Container)
+Blueprint              →  Running process
+Static definition      →  Active execution
+Can create many        →  Each instance independent
+```
+
+### 1.2. Microservices Architecture
+
+**In plain English:** A monolith is like a Swiss Army knife—one tool with many functions tightly integrated. If the blade breaks, the whole tool is compromised. Microservices are like a toolbox—each tool (service) is independent, specialized, and replaceable. If one tool breaks, the others still work.
+
+**In technical terms:** Microservices arrange an application as a collection of loosely coupled, fine-grained services. Each service represents a specific functionality, can be scaled independently, and communicates via lightweight protocols (HTTP, gRPC).
+
+**Why it matters:** ML systems naturally fit microservices: data ingestion, feature engineering, model serving, monitoring are separate concerns. Microservices let you scale the model-serving component without scaling the entire application.
+
+<ComparisonTable
+  title="Monolith vs. Microservices"
+  headers={["Aspect", "Monolith", "Microservices"]}
+  rows={[
+    ["Structure", "Single unit, tightly coupled", "Independent services, loosely coupled"],
+    ["Deployment", "Deploy entire application", "Deploy services independently"],
+    ["Scaling", "Scale entire app (even if only one part needs it)", "Scale individual services based on demand"],
+    ["Failure Impact", "One component fails → whole system down", "One service fails → others continue"],
+    ["Technology", "Single language/framework", "Polyglot: different languages per service"],
+    ["Team Organization", "Large team on one codebase", "Small teams own specific services"]
+  ]}
+/>
+
+**ML System as Microservices:**
+
+<TreeDiagram
+  title="ML Microservices Architecture"
+  root="ML Application"
+  branches={[
+    {
+      label: "Data Ingestion Service",
+      children: [
+        { label: "Stream processor (Kafka)" },
+        { label: "Batch loader (Airflow)" }
+      ]
+    },
+    {
+      label: "Feature Engineering Service",
+      children: [
+        { label: "Real-time features" },
+        { label: "Feature store queries" }
+      ]
+    },
+    {
+      label: "Model Serving Service",
+      children: [
+        { label: "Fraud detection model" },
+        { label: "Recommendation model" }
+      ]
+    },
+    {
+      label: "Monitoring Service",
+      children: [
+        { label: "Metrics collection" },
+        { label: "Drift detection" }
+      ]
+    }
+  ]}
+/>
+
+### 1.3. Immutable Infrastructure
+
+**In plain English:** Imagine you rent an apartment. Traditional approach: you move in, customize it over time (paint walls, hang pictures, fix leaks). When you move out, the next tenant inherits all your changes—messy. Immutable infrastructure: every tenant gets a brand-new, identical apartment. When you leave, the apartment is destroyed and rebuilt from scratch for the next tenant.
+
+**In technical terms:** Immutable infrastructure means never modifying a deployed component after it runs. When an update is needed, build a new version from a standardized image and deploy it to replace the existing instance. The old instance is decommissioned.
+
+**Why it matters:** Guarantees consistency and reproducibility. Every deployment starts from a clean, known state. No configuration drift. No "snowflake servers" with mysterious manual tweaks that break when recreated.
+
+<ProcessFlow
+  title="Immutable Deployment Pattern"
+  steps={[
+    { label: "Current State", description: "Running container v1.0 serving traffic" },
+    { label: "Build New Image", description: "Create v1.1 with bug fix, build from Dockerfile" },
+    { label: "Deploy New Instance", description: "Start v1.1 container alongside v1.0" },
+    { label: "Validate", description: "Health checks pass, test traffic on v1.1" },
+    { label: "Switch Traffic", description: "Route users to v1.1, monitor metrics" },
+    { label: "Decommission Old", description: "Terminate v1.0 container (never modified)" }
+  ]}
+/>
+
+**Containers Epitomize Immutability:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Ephemeral Nature</strong>
+    <br />
+    Containers are disposable. Stop, destroy, recreate from image anytime.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Cattle, Not Pets</strong>
+    <br />
+    Servers are not unique snowflakes to be nursed. They are interchangeable units.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Configuration as Code</strong>
+    <br />
+    All config in Dockerfile and environment variables. Version controlled.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Rollback Simplicity</strong>
+    <br />
+    Deploy previous image version instantly. No manual configuration restoration.
+  </Box>
+</CardGrid>
+
+:::info Service Meshes
+A service mesh (like Istio, Linkerd) manages service-to-service communication in microservices architectures. It provides:
+- Traffic management (routing, load balancing)
+- Security (mutual TLS encryption)
+- Observability (metrics, tracing, logging)
+
+By offloading these concerns to proxy sidecars attached to each service, developers focus on business logic while operations manage reliability uniformly.
+:::
+
+## 2. Kubernetes Introduction
+
+### 2.1. Why Kubernetes for ML?
+
+**In plain English:** Managing containers manually is like juggling: manageable with 2-3 balls, impossible with 100. Kubernetes is a juggling machine that automatically keeps hundreds of containers (balls) in the air, catches dropped ones, and adds more when needed.
+
+**In technical terms:** Kubernetes is an open-source container orchestration system that automates deployment, scaling, and management of containerized applications. It handles scheduling, self-healing, load balancing, and rolling updates across clusters of machines.
+
+**Why it matters:** Production ML systems have dozens of services (data pipelines, model serving, monitoring) running across many machines. Manual management is infeasible. Kubernetes provides automation and resilience that make large-scale ML systems practical.
+
+**The Manual Management Problem:**
+
+When you have many containers across many machines:
+
+<CardGrid columns={2}>
+  <Box color={colors.red} padding={20}>
+    <strong>Without Kubernetes</strong>
+    <br /><br />
+    ❌ Which node runs which container? (manual scheduling)
+    <br />
+    ❌ Container crashes? (manual restart)
+    <br />
+    ❌ Node fails? (manual migration)
+    <br />
+    ❌ Scale with load? (manual scaling)
+    <br />
+    ❌ Update without downtime? (manual orchestration)
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>With Kubernetes</strong>
+    <br /><br />
+    ✅ Automatic scheduling based on resources
+    <br />
+    ✅ Self-healing: restart failed containers
+    <br />
+    ✅ Reschedule to healthy nodes
+    <br />
+    ✅ Auto-scaling (HPA, VPA, cluster autoscaler)
+    <br />
+    ✅ Rolling updates and rollbacks
+  </Box>
+</CardGrid>
+
+### 2.2. Core Features
+
+<StackDiagram
+  title="Kubernetes Key Features"
+  layers={[
+    { label: "Automatic Scheduling", color: colors.blue, description: "Decides which node runs which pods based on resource requirements and policies" },
+    { label: "Self-Healing", color: colors.purple, description: "Restarts crashed containers, reschedules to healthy nodes" },
+    { label: "Horizontal Scaling", color: colors.green, description: "Manual or auto-scaling based on CPU, memory, custom metrics" },
+    { label: "Rolling Updates", color: colors.orange, description: "Update container versions with zero downtime, automatic rollbacks" },
+    { label: "Service Discovery", color: colors.red, description: "DNS-based discovery, load balancing across pod replicas" },
+    { label: "Declarative Configuration", color: colors.blue, description: "Specify desired state (3 replicas), Kubernetes maintains it" }
+  ]}
+/>
+
+**Declarative Configuration Example:**
+
+```yaml
+# What you declare (desired state)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-serving
+spec:
+  replicas: 3  # I want 3 instances
+  template:
+    spec:
+      containers:
+      - name: model
+        image: model-server:v1.0
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "512Mi"
+```
+
+**What Kubernetes Does:**
+
+<ProcessFlow
+  title="Declarative Reconciliation"
+  steps={[
+    { label: "Read Desired State", description: "User submits YAML: wants 3 replicas" },
+    { label: "Check Current State", description: "Currently 0 replicas running" },
+    { label: "Reconcile Difference", description: "Create 3 pods to match desired state" },
+    { label: "Schedule Pods", description: "Assign pods to nodes with available resources" },
+    { label: "Monitor Continuously", description: "If pod crashes, recreate to maintain 3 replicas" }
+  ]}
+/>
+
+## 3. Kubernetes Architecture
+
+### 3.1. Cluster Components
+
+**In plain English:** A Kubernetes cluster is like a company. The control plane (management) makes decisions about what work needs to be done, who should do it, and monitors progress. Worker nodes (employees) actually do the work. The control plane never does the work itself—it just orchestrates.
+
+**In technical terms:** A Kubernetes cluster consists of a control plane (master nodes) that makes global decisions and maintains cluster state, and worker nodes that run application workloads (containers) under the control plane's instructions.
+
+**Why it matters:** Understanding this separation is critical. The control plane is the "brain" (scheduling, state management, API). Worker nodes are the "muscle" (executing containers). This architecture enables scale: one control plane can manage thousands of worker nodes.
+
+<StackDiagram
+  title="Kubernetes Cluster Architecture"
+  layers={[
+    { label: "Control Plane (Master Nodes)", color: colors.blue, description: "kube-apiserver, etcd, scheduler, controller-manager" },
+    { label: "Worker Nodes", color: colors.purple, description: "kubelet, container runtime, kube-proxy" },
+    { label: "Networking Layer", color: colors.green, description: "CNI plugin (Calico, Flannel, Weave)" },
+    { label: "External Access", color: colors.orange, description: "Service, Ingress, LoadBalancer" }
+  ]}
+/>
+
+**Cluster Minimum Requirements:**
+
+- At least one control plane node (often 3 for HA)
+- At least one worker node (can have hundreds)
+- Control plane components can run on dedicated machines or co-locate with workers (in simple setups like minikube)
+
+### 3.2. Control Plane Deep Dive
+
+**Control Plane Components:**
+
+<TreeDiagram
+  title="Control Plane Components"
+  root="Control Plane"
+  branches={[
+    {
+      label: "kube-apiserver",
+      children: [
+        { label: "RESTful API (HTTP/HTTPS)" },
+        { label: "Authentication & authorization" },
+        { label: "Validates and persists to etcd" }
+      ]
+    },
+    {
+      label: "etcd",
+      children: [
+        { label: "Distributed key-value store" },
+        { label: "Cluster state source of truth" },
+        { label: "Must be highly available (3+ replicas)" }
+      ]
+    },
+    {
+      label: "kube-scheduler",
+      children: [
+        { label: "Watches for unscheduled pods" },
+        { label: "Picks optimal node" },
+        { label: "Binds pod to node via API" }
+      ]
+    },
+    {
+      label: "kube-controller-manager",
+      children: [
+        { label: "Replication controller" },
+        { label: "Deployment controller" },
+        { label: "Node controller" },
+        { label: "Service controller" }
+      ]
+    }
+  ]}
+/>
+
+**Component Details:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>kube-apiserver</strong>
+    <br /><br />
+    The front door for all cluster operations.
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Exposes Kubernetes API (RESTful)
+    <br />
+    • All components communicate via API server
+    <br />
+    • Validates requests, persists to etcd
+    <br />
+    • Performs authentication and authorization
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>etcd</strong>
+    <br /><br />
+    The cluster's database and source of truth.
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Distributed key-value store
+    <br />
+    • Stores all cluster state (objects, configs)
+    <br />
+    • Strongly consistent (Raft consensus)
+    <br />
+    • Control plane watches etcd for changes
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>kube-scheduler</strong>
+    <br /><br />
+    Decides where pods should run.
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Watches for unscheduled pods (no node assigned)
+    <br />
+    • Evaluates constraints (CPU, memory, affinity)
+    <br />
+    • Picks optimal node for each pod
+    <br />
+    • Binds pod to node (via API server)
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>kube-controller-manager</strong>
+    <br /><br />
+    Runs control loops to maintain desired state.
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • ReplicaSet controller: ensures replica count
+    <br />
+    • Deployment controller: rolling updates
+    <br />
+    • Node controller: monitors node health
+    <br />
+    • Endpoint controller: populates endpoints
+  </Box>
+</CardGrid>
+
+**Control Loop Pattern:**
+
+All controllers follow the same pattern:
+
+<ProcessFlow
+  title="Controller Reconciliation Loop"
+  steps={[
+    { label: "Watch", description: "Monitor API server for changes to resources" },
+    { label: "Read Current State", description: "Get actual state from cluster" },
+    { label: "Read Desired State", description: "Get spec from API object definition" },
+    { label: "Compare", description: "Identify differences between current and desired" },
+    { label: "Reconcile", description: "Take action to make current match desired" },
+    { label: "Repeat", description: "Loop continuously, converging toward desired state" }
+  ]}
+/>
+
+### 3.3. Worker Node Components
+
+**In plain English:** If the control plane is the project manager giving instructions, worker nodes are the construction workers with toolbelts. Each worker has three main tools: kubelet (the foreman who follows instructions), container runtime (the power tools that build things), and kube-proxy (the communications specialist who routes messages).
+
+**In technical terms:** Worker nodes run the actual application workloads (pods). Each node has three key components: kubelet (node agent), container runtime (executes containers), and kube-proxy (network proxy for services).
+
+<StackDiagram
+  title="Worker Node Components"
+  layers={[
+    { label: "kubelet", color: colors.blue, description: "Node agent: watches API, manages pods, reports status" },
+    { label: "Container Runtime", color: colors.purple, description: "Pulls images, runs containers (containerd, CRI-O)" },
+    { label: "kube-proxy", color: colors.green, description: "Network proxy: implements Service abstraction, load balancing" },
+    { label: "Pods & Containers", color: colors.orange, description: "Actual application workloads running on the node" }
+  ]}
+/>
+
+**Component Details:**
+
+<CardGrid columns={3}>
+  <Box color={colors.blue} padding={20}>
+    <strong>kubelet</strong>
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Runs on every node
+    <br />
+    • Watches API server for assigned pods
+    <br />
+    • Ensures containers are running and healthy
+    <br />
+    • Runs health probes (liveness, readiness)
+    <br />
+    • Reports node and pod status to control plane
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Container Runtime</strong>
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Pulls container images from registries
+    <br />
+    • Creates and manages containers
+    <br />
+    • Interfaces via CRI (Container Runtime Interface)
+    <br />
+    • Common runtimes: containerd, CRI-O
+    <br />
+    • (Docker deprecated, but containerd is Docker's runtime)
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>kube-proxy</strong>
+    <br /><br />
+    <strong>Role:</strong>
+    <br />
+    • Runs on every node
+    <br />
+    • Implements Service load balancing
+    <br />
+    • Watches API for Service/Endpoint changes
+    <br />
+    • Configures iptables or IPVS rules
+    <br />
+    • Routes traffic to backend pods
+  </Box>
+</CardGrid>
+
+**How Components Interact:**
+
+<ProcessFlow
+  title="Pod Deployment Flow"
+  steps={[
+    { label: "User Submits", description: "kubectl apply -f deployment.yaml → API server" },
+    { label: "API Server", description: "Validates, persists to etcd, creates objects" },
+    { label: "Scheduler Watches", description: "Sees unscheduled pods, picks nodes, binds" },
+    { label: "Kubelet Watches", description: "Sees pod assigned to its node" },
+    { label: "Container Runtime", description: "Kubelet tells runtime to pull image and start container" },
+    { label: "Status Report", description: "Kubelet reports pod status to API server" },
+    { label: "Controller Monitors", description: "ReplicaSet controller ensures replica count maintained" }
+  ]}
+/>
+
+## 4. Core Abstractions
+
+**In plain English:** Kubernetes uses layers of abstractions like a set of Russian nesting dolls. At the smallest level is a container (running process). Containers live in pods (smallest deployable unit). Pods are managed by Deployments (desired state). Deployments are exposed via Services (stable network access). Understanding these layers is key to using Kubernetes effectively.
+
+**Key Abstractions:**
+
+<ComparisonTable
+  title="Kubernetes Core Abstractions"
+  headers={["Abstraction", "Purpose", "Example"]}
+  rows={[
+    ["Pod", "Smallest deployable unit; hosts 1+ containers", "model-server-pod-abc123"],
+    ["ReplicaSet", "Ensures N identical pod replicas running", "Maintain 3 replicas of model-server"],
+    ["Deployment", "Manages ReplicaSets; handles rolling updates", "Deploy model-server v1.1, rollback if fails"],
+    ["Service", "Stable IP/DNS for pods; load balancing", "http://model-server:80 → routes to 3 pods"],
+    ["Ingress", "HTTP routing from outside cluster to Services", "https://api.company.com/predict → model-server Service"],
+    ["ConfigMap", "Non-sensitive configuration data", "Model hyperparameters, feature names"],
+    ["Secret", "Sensitive data (passwords, tokens)", "Database credentials, API keys"],
+    ["PersistentVolume", "Storage abstraction (disk, NFS, cloud storage)", "Mount /data volume for model files"],
+    ["Namespace", "Logical cluster partitioning (isolation)", "dev, staging, prod namespaces"]
+  ]}
+/>
+
+**Labels and Selectors:**
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>Labels</strong>
+      <br /><br />
+      Key-value tags attached to objects
+      <br /><br />
+      <code>app: model-server</code>
+      <br />
+      <code>version: v1.0</code>
+      <br />
+      <code>environment: prod</code>
+      <br /><br />
+      Used for organization and selection
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>Selectors</strong>
+      <br /><br />
+      Query mechanism to filter resources
+      <br /><br />
+      Service selector: <code>app: model-server</code>
+      <br />
+      Routes traffic to all pods with that label
+      <br /><br />
+      Enables loose coupling between components
+    </Box>
+  </Column>
+</Row>
+
+**API Objects Pattern:**
+
+Every Kubernetes resource follows the same structure:
+
+```yaml
+apiVersion: apps/v1    # API version
+kind: Deployment       # Resource type
+metadata:              # Identifying information
+  name: model-serving
+  labels:
+    app: ml-model
+spec:                  # Desired state
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ml-model
+  template:
+    metadata:
+      labels:
+        app: ml-model
+    spec:
+      containers:
+      - name: model
+        image: model:v1.0
+status:               # Current state (managed by Kubernetes)
+  availableReplicas: 3
+  readyReplicas: 3
+```
+
+## 5. Hands-On: Kubernetes in Action
+
+**Objective:** Deploy a FastAPI ML inference service on Kubernetes with 2 replicas, expose it via a Service, and test predictions.
+
+### 5.1. Setup (Kind for Local Kubernetes)
+
+**Install Kind (Kubernetes in Docker):**
+
+```bash
+# Install kind (platform-specific, see https://kind.sigs.k8s.io/docs/user/quick-start/)
+# macOS
+brew install kind
+
+# Create a cluster
+kind create cluster --name ml-demo
+
+# Verify cluster
+kubectl cluster-info --context kind-ml-demo
+```
+
+**Install kubectl:**
+
+```bash
+# macOS
+brew install kubectl
+
+# Verify
+kubectl version --client
+```
+
+### 5.2. Build and Load Model Image
+
+**Train Model (Optional, model.pkl provided):**
+
+```python
+from sklearn.linear_model import LinearRegression
+import joblib
+
+X = [[1], [2], [3], [4], [5]]
+y = [2, 4, 6, 8, 10]  # y = 2x
+
+model = LinearRegression()
+model.fit(X, y)
+joblib.dump(model, "model.pkl")
+```
+
+**FastAPI Application (app.py):**
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+
+app = FastAPI()
+model = joblib.load("model.pkl")
+
+class InputData(BaseModel):
+    x: float
+
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
+
+@app.post("/predict")
+async def predict(data: InputData):
+    prediction = model.predict([[data.x]])[0]
+    return {"prediction": prediction}
+```
+
+**Dockerfile:**
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY app.py model.pkl requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+EXPOSE 80
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "80"]
+```
+
+**Build and Load to Kind:**
+
+```bash
+# Build image
+docker build -t k-demo:latest .
+
+# Load into kind cluster
+kind load docker-image k-demo:latest --name ml-demo
+```
+
+### 5.3. Kubernetes Configuration
+
+**Deployment (deployment.yaml):**
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: k-demo-dep
+spec:
+  replicas: 2  # 2 pod instances for high availability
+  selector:
+    matchLabels:
+      app: k-demo
+  template:
+    metadata:
+      labels:
+        app: k-demo  # Pods get this label
+    spec:
+      containers:
+      - name: k-demo
+        image: k-demo:latest
+        imagePullPolicy: IfNotPresent  # Use local image
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+```
+
+**Deployment Details:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>replicas: 2</strong>
+    <br />
+    Kubernetes ensures 2 pods always running. If one crashes, it creates a replacement.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>selector.matchLabels</strong>
+    <br />
+    Deployment manages pods with label <code>app: k-demo</code>. Must match template labels.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>resources.requests</strong>
+    <br />
+    Scheduler uses this to pick nodes with available CPU/memory. Guaranteed allocation.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>resources.limits</strong>
+    <br />
+    Container cannot exceed these. Protects other workloads from resource starvation.
+  </Box>
+</CardGrid>
+
+**Service (service.yaml):**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: k-demo
+spec:
+  selector:
+    app: k-demo  # Route traffic to pods with this label
+  ports:
+  - name: http
+    port: 80         # Service listens on port 80
+    targetPort: 80   # Forward to container port 80
+  type: ClusterIP    # Internal-only (inside cluster)
+```
+
+**Service Details:**
+
+<ProcessFlow
+  title="Service Traffic Flow"
+  steps={[
+    { label: "Client Request", description: "Pod in cluster calls http://k-demo:80" },
+    { label: "DNS Resolution", description: "CoreDNS resolves k-demo to Service ClusterIP" },
+    { label: "Service Routes", description: "kube-proxy load balances to one of 2 pods" },
+    { label: "Pod Handles", description: "FastAPI app in selected pod processes request" },
+    { label: "Response Returns", description: "Prediction returned to client" }
+  ]}
+/>
+
+### 5.4. Deploy to Kubernetes
+
+**Apply Configurations:**
+
+```bash
+# Deploy application
+kubectl apply -f deployment.yaml
+# Output: deployment.apps/k-demo-dep created
+
+# Expose via Service
+kubectl apply -f service.yaml
+# Output: service/k-demo created
+
+# Check deployment status
+kubectl get deployment k-demo-dep
+# NAME         READY   UP-TO-DATE   AVAILABLE   AGE
+# k-demo-dep   2/2     2            2           30s
+
+# Check pods
+kubectl get pods -l app=k-demo
+# NAME                          READY   STATUS    RESTARTS   AGE
+# k-demo-dep-abc123             1/1     Running   0          30s
+# k-demo-dep-def456             1/1     Running   0          30s
+
+# Check service
+kubectl get service k-demo
+# NAME     TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+# k-demo   ClusterIP   10.96.100.50    <none>        80/TCP    20s
+```
+
+**View Logs:**
+
+```bash
+# All pods with label app=k-demo
+kubectl logs -l app=k-demo -f --prefix
+
+# Output (both replicas):
+# [pod/k-demo-dep-abc123] INFO: Uvicorn running on http://0.0.0.0:80
+# [pod/k-demo-dep-def456] INFO: Uvicorn running on http://0.0.0.0:80
+```
+
+### 5.5. Test the Service
+
+**Port Forward (Access from Laptop):**
+
+```bash
+# Forward local port 8000 to Service port 80
+kubectl port-forward service/k-demo 8000:80
+
+# Output: Forwarding from 127.0.0.1:8000 -> 80
+```
+
+**Test Script (test.py):**
+
+```python
+import requests
+
+# Health check
+response = requests.get("http://localhost:8000/health")
+print(f"Health: {response.json()}")
+
+# Predictions
+for x in [2.0, 5.0, 10.0]:
+    response = requests.post(
+        "http://localhost:8000/predict",
+        json={"x": x}
+    )
+    print(f"Input: {x}, Prediction: {response.json()['prediction']}")
+
+# Output:
+# Health: {'status': 'healthy'}
+# Input: 2.0, Prediction: 4.0
+# Input: 5.0, Prediction: 10.0
+# Input: 10.0, Prediction: 20.0
+```
+
+**Interactive API Docs:**
+
+Access FastAPI documentation at `http://localhost:8000/docs`
+
+### 5.6. Scaling and Updates
+
+**Scale to 5 Replicas:**
+
+```bash
+kubectl scale deployment k-demo-dep --replicas=5
+
+# Verify
+kubectl get pods -l app=k-demo
+# Shows 5 pods running
+```
+
+**Rolling Update (New Model Version):**
+
+```bash
+# Build new image version
+docker build -t k-demo:v2.0 .
+kind load docker-image k-demo:v2.0 --name ml-demo
+
+# Update deployment
+kubectl set image deployment/k-demo-dep k-demo=k-demo:v2.0
+
+# Watch rollout
+kubectl rollout status deployment/k-demo-dep
+# Output: deployment "k-demo-dep" successfully rolled out
+
+# Rollback if needed
+kubectl rollout undo deployment/k-demo-dep
+```
+
+**How Rolling Updates Work:**
+
+<ProcessFlow
+  title="Zero-Downtime Rolling Update"
+  steps={[
+    { label: "Current State", description: "2 pods running v1.0, serving traffic" },
+    { label: "Create New Pod", description: "Start 1 pod with v2.0 image" },
+    { label: "Wait for Ready", description: "Health checks pass on v2.0 pod" },
+    { label: "Terminate Old Pod", description: "Stop 1 v1.0 pod" },
+    { label: "Repeat", description: "Create v2.0, terminate v1.0 until all updated" },
+    { label: "Complete", description: "All 2 pods running v2.0, zero downtime" }
+  ]}
+/>
+
+### 5.7. Cleanup
+
+```bash
+# Delete resources
+kubectl delete -f deployment.yaml
+kubectl delete -f service.yaml
+
+# Delete cluster
+kind delete cluster --name ml-demo
+```
+
+## Key Takeaways
+
+<CardGrid columns={1}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Kubernetes is a container orchestration system, not a container runtime.</strong> It manages containers (via runtimes like containerd), handling scheduling, scaling, healing, and networking across clusters.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Control plane (brain) vs. worker nodes (muscle).</strong> Control plane makes decisions and maintains state. Worker nodes execute workloads. This separation enables massive scale.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Declarative configuration drives behavior.</strong> You specify desired state (3 replicas), Kubernetes continuously reconciles current state to match. Controllers loop endlessly to maintain convergence.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Abstractions layer for simplicity.</strong> Pods contain containers. Deployments manage pods. Services expose pods. Understanding these layers is essential for effective Kubernetes use.
+  </Box>
+  <Box color={colors.red} padding={20}>
+    <strong>Kubernetes has a learning curve but provides production-grade reliability.</strong> Self-healing, auto-scaling, rolling updates, and load balancing are built-in. Essential for modern ML systems.
+  </Box>
+</CardGrid>
+
+:::warning This is Just the Beginning
+This chapter covers Kubernetes basics. Production deployments involve:
+- **Security:** RBAC, network policies, pod security standards
+- **Observability:** Prometheus, Grafana, distributed tracing
+- **Advanced Scheduling:** Taints, tolerations, affinity rules
+- **StatefulSets:** For databases and stateful workloads
+- **Helm:** Package manager for Kubernetes applications
+- **GitOps:** Argo CD, Flux for declarative deployments
+
+Recommended resources:
+- [Kubernetes Documentation](https://kubernetes.io/docs/)
+- [Kubernetes Tutorial for Beginners](https://spacelift.io/blog/kubernetes-tutorial)
+- [kubectl Quick Reference](https://kubernetes.io/docs/reference/kubectl/quick-reference/)
+:::
+
+:::info Next Steps
+Future chapters will cover:
+- CI/CD workflows for ML systems
+- Model monitoring and observability in production
+- Real-world case studies from industry
+- Special considerations for LLMOps (large language models)
+
+The goal: cultivate a mature, system-centric mindset that treats machine learning not as a standalone artifact but as a living part of a broader software ecosystem.
+:::

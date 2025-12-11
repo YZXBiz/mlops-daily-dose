@@ -1,0 +1,495 @@
+---
+sidebar_position: 7
+title: "Data and Pipeline Engineering - Part C"
+description: "Distributed data processing with Apache Spark and orchestration with Prefect for scalable ML systems"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# Data and Pipeline Engineering - Part C
+
+> *"In production ML systems, building pipelines is one thing; running them reliably on schedule or in response to events is another. Workflow orchestration and distributed processing become indispensable when you hit the big data realm."*
+
+## Table of Contents
+
+1. [Recap](#1-recap)
+2. [Distributed Data Processing with Apache Spark](#2-distributed-data-processing-with-apache-spark)
+   - 2.1. [What is Spark?](#21-what-is-spark)
+   - 2.2. [Spark DataFrame](#22-spark-dataframe)
+   - 2.3. [Spark for ETL in ML](#23-spark-for-etl-in-ml)
+   - 2.4. [Spark MLlib and Pipelines](#24-spark-mllib-and-pipelines)
+   - 2.5. [When to Use Spark](#25-when-to-use-spark)
+   - 2.6. [Spark vs Pandas](#26-spark-vs-pandas)
+   - 2.7. [Spark Limitations](#27-spark-limitations)
+3. [Orchestration and Workflow Management](#3-orchestration-and-workflow-management)
+   - 3.1. [Pipeline Orchestration with Prefect](#31-pipeline-orchestration-with-prefect)
+   - 3.2. [Scheduling in Prefect](#32-scheduling-in-prefect)
+   - 3.3. [Best Practices for Scheduling](#33-best-practices-for-scheduling)
+4. [Conclusion](#4-conclusion)
+
+## 1. Recap
+
+In Part 6 of this MLOps and LLMOps crash course, we explored crucial and advanced concepts related to the data phase of the ML system lifecycle.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Sampling Strategies</strong>
+    <p>Explored probabilistic and non-probabilistic sampling methods including stratified sampling</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Class Imbalance</strong>
+    <p>Techniques like SMOTE, focal loss, and resampling approaches</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Data Leakage</strong>
+    <p>Various types and best practices to prevent it effectively</p>
+  </Box>
+  <Box color={colors.orange}>
+    <strong>Feature Stores</strong>
+    <p>Deep dive into Feast framework with hands-on implementation</p>
+  </Box>
+</CardGrid>
+
+In this chapter, we continue with data processing and management in ML systems, diving deeper into practical implementations.
+
+**What we will cover:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Apache Spark</strong>
+    <p>Introduction and comparison with Pandas</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Orchestration</strong>
+    <p>Scheduling and automating pipelines with Prefect</p>
+  </Box>
+</CardGrid>
+
+## 2. Distributed Data Processing with Apache Spark
+
+**In plain English:** Imagine trying to process a massive dataset that does not fit on your laptop. Apache Spark is like having a team of workers who can split up the work, process different pieces simultaneously, and combine the results.
+
+**In technical terms:** Apache Spark is a distributed computing engine that allows you to handle datasets that do not fit in memory by distributing them across multiple machines and performing computations in parallel across a cluster.
+
+**Why it matters:** As data volumes grow, single-machine tools like Pandas and NumPy may start to falter. Spark allows ML pipelines to scale to billions of records, making it indispensable for production systems with massive data requirements.
+
+### 2.1. What is Spark?
+
+Spark is a cluster computing framework that provides an API for distributed data structures and operations on them.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Core Components</strong>
+    <p>• Resilient Distributed Datasets (RDDs)</p>
+    <p>• Higher-level DataFrames</p>
+    <p>• Distributed operations</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Language Support</strong>
+    <p>• Scala (native)</p>
+    <p>• Python (PySpark)</p>
+    <p>• Java, R</p>
+  </Box>
+</CardGrid>
+
+For ML pipelines, the two key aspects of Spark are:
+
+1. **The DataFrame API** - A similar concept to pandas DataFrame, but distributed
+2. **Spark MLlib** - Machine learning algorithms that can run in a distributed manner
+
+### 2.2. Spark DataFrame
+
+**In plain English:** A Spark DataFrame is like a spreadsheet that is automatically split across multiple computers. When you filter or transform data, Spark handles the complexity of coordinating work across machines.
+
+**In technical terms:** Spark DataFrames are conceptually like tables distributed across a cluster. Built on RDDs but optimized through the Catalyst query optimizer, they support SQL-like operations that Spark automatically parallelizes.
+
+**Why it matters:** You write code that looks similar to Pandas, but Spark can run on datasets spread across different machines, with data partitioned and processed in parallel without loading everything into one memory.
+
+<DiagramContainer title="Spark DataFrame Architecture">
+  <ProcessFlow
+    steps={[
+      { label: "Data Partitioning", color: colors.blue },
+      { label: "Parallel Processing", color: colors.green },
+      { label: "Catalyst Optimization", color: colors.purple },
+      { label: "Result Aggregation", color: colors.orange }
+    ]}
+  />
+</DiagramContainer>
+
+### 2.3. Spark for ETL in ML
+
+A lot of data engineering pipelines use Spark to do heavy lifting:
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <strong>Data Ingestion</strong>
+    <p>Reading from data lakes</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Transformation</strong>
+    <p>Joining large tables</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Feature Engineering</strong>
+    <p>Computing aggregations</p>
+  </Box>
+</CardGrid>
+
+Spark can then output results to storage (such as Parquet files) for model training, or use Spark MLlib to directly train models on large data.
+
+### 2.4. Spark MLlib and Pipelines
+
+Spark MLlib is the library of machine learning algorithms in Spark. It has its own Pipeline class analogous to scikit-learn.
+
+**Key Components:**
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <strong>Preprocessing</strong>
+    <p>• Imputer</p>
+    <p>• VectorAssembler</p>
+    <p>• Feature transformers</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Algorithms</strong>
+    <p>• LinearRegression</p>
+    <p>• LogisticRegression</p>
+    <p>• Random Forests</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Pipeline</strong>
+    <p>• Chain transformations</p>
+    <p>• Fit on training data</p>
+    <p>• Transform test data</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> An example Spark ML pipeline chains together: Imputer → VectorAssembler → LinearRegression. The pipeline fits on training data only, ensuring no data leakage, then transforms test data for evaluation.
+
+### 2.5. When to Use Spark
+
+<ComparisonTable
+  title="When to Use Spark vs Pandas"
+  items={[
+    {
+      aspect: "Data Size",
+      option1: "< few million rows, < 1 GB",
+      option2: "Tens of billions of records",
+      recommendation: "option1"
+    },
+    {
+      aspect: "Tool Choice",
+      option1: "Pandas + scikit-learn",
+      option2: "Apache Spark",
+      recommendation: "option1"
+    },
+    {
+      aspect: "Performance",
+      option1: "Faster due to less overhead",
+      option2: "Better for massive datasets",
+      recommendation: "depends"
+    },
+    {
+      aspect: "Infrastructure",
+      option1: "Single machine",
+      option2: "Distributed cluster (HDFS, data lakes)",
+      recommendation: "depends"
+    }
+  ]}
+/>
+
+**Example scenario:** Suppose we have a log of user interactions with a website (1 billion events stored in Parquet on HDFS). We want to create features per user for a churn model.
+
+- **With Pandas:** Practical failure for such a huge number of rows
+- **With Spark:** Group by user and compute aggregates in a distributed way, much faster and more efficiently
+
+:::warning
+The code examples in demonstrations often use small datasets (10,000 rows) purely for illustration. Such datasets are better suited for Pandas due to lower overhead. The code showcases Spark workflows, not performance benchmarks.
+:::
+
+### 2.6. Spark vs Pandas
+
+**In plain English:** Pandas is like a powerful calculator that works fast but can only hold so much in its memory. Spark is like a team of calculators working together, slower to set up but able to handle problems that would overwhelm a single calculator.
+
+**In technical terms:** Pandas is optimized for in-memory, single-node workloads with very low overhead and fast NumPy operations. Spark is a distributed computing framework with lazy evaluation, query optimization, and partitioned execution for datasets much larger than memory.
+
+**Why it matters:** Understanding when to use each tool prevents wasted effort and infrastructure costs. Pandas excels for small-to-medium data and rapid prototyping. Spark becomes essential when datasets strain or exceed RAM, or when shuffle-heavy joins and aggregations require parallelism.
+
+<ComparisonTable
+  title="Pandas vs Spark: Key Differences"
+  items={[
+    {
+      aspect: "Execution Model",
+      option1: "Eager execution",
+      option2: "Lazy evaluation",
+      recommendation: "depends"
+    },
+    {
+      aspect: "Memory Model",
+      option1: "All-in-memory (crash risk)",
+      option2: "Partitioned, spill-friendly",
+      recommendation: "option2"
+    },
+    {
+      aspect: "Overhead",
+      option1: "Very low",
+      option2: "JVM startup, task scheduling",
+      recommendation: "option1"
+    },
+    {
+      aspect: "Scalability",
+      option1: "Single machine limit",
+      option2: "Cluster scalability",
+      recommendation: "option2"
+    }
+  ]}
+/>
+
+> **Insight**
+>
+> Spark introduces orchestration overhead (JVM startup, task scheduling, shuffle management) that often makes it slower than Pandas for simple operations on moderate data. The full benefits only become apparent when datasets exceed RAM or involve complex shuffles and joins.
+
+**Key Takeaways:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Pandas</strong>
+    <p>• Eager execution</p>
+    <p>• All-in-memory</p>
+    <p>• Risk of crashes with large data</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Spark</strong>
+    <p>• Partitioned processing</p>
+    <p>• Lazy evaluation</p>
+    <p>• Spill-friendly design</p>
+  </Box>
+</CardGrid>
+
+Why Spark succeeds where Pandas crashes:
+
+1. Spark never tries to materialize all N rows on the driver
+2. Each partition is processed independently
+3. If RAM is tight, Spark spills partitions to disk
+4. The result returned to Python is not the full dataset
+
+### 2.7. Spark Limitations
+
+Spark is not magic; it comes with its own challenges:
+
+<CardGrid columns={3}>
+  <Box color={colors.red}>
+    <strong>Network Bottlenecks</strong>
+    <p>I/O and network can become bottlenecks</p>
+  </Box>
+  <Box color={colors.orange}>
+    <strong>Algorithm Constraints</strong>
+    <p>Works best with parallelizable algorithms</p>
+  </Box>
+  <Box color={colors.yellow}>
+    <strong>Debugging Complexity</strong>
+    <p>Harder due to distributed nature</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Debugging Spark requires comfort with distributed logs to diagnose performance issues. The distributed nature makes troubleshooting more complex than single-machine tools.
+
+### Summary
+
+Apache Spark extends pipelines to big data scale, enabling teams to implement distributed ETL and modeling. In an MLOps context, being comfortable with Spark means creating pipelines that leverage distributed processing—a typical necessity in production where data is massive.
+
+**The key principle:** Use Spark when needed. For many MLOps tasks, small data tools suffice, but when you hit the big data realm or need parallel processing, Spark (or similar frameworks) becomes indispensable.
+
+## 3. Orchestration and Workflow Management
+
+**In plain English:** Orchestration is like having a conductor for an orchestra—it ensures all the different parts of your ML pipeline (data fetching, processing, training) play together at the right time and in the right order.
+
+**In technical terms:** Workflow orchestration tools manage complex pipelines with multiple steps, dependencies, and scheduling needs, ensuring reliable execution on schedule or in response to events.
+
+**Why it matters:** Building a pipeline is one thing; running it reliably in production is another. Orchestration prevents manual intervention, handles failures gracefully, and ensures pipelines execute consistently at scale.
+
+### 3.1. Pipeline Orchestration with Prefect
+
+Prefect is an orchestration tool designed to feel more Pythonic and flexible than older DAG-based systems like Airflow.
+
+**Core Concepts:**
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <strong>Flows & Tasks</strong>
+    <p>Turn Python functions into tasks using decorators, group them inside flows</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Dynamic Workflows</strong>
+    <p>Use standard Python control flow (if, for, etc.) inside a flow</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Execution Backends</strong>
+    <p>Run locally, on Dask, in Docker, or on Kubernetes</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> **What is a DAG?** A DAG (Directed Acyclic Graph) is the data structure most workflow orchestrators use to represent pipelines. Nodes are tasks (fetching data, processing, training), and edges represent dependencies. The graph is directed (tasks follow defined order) and acyclic (no loops causing infinite runs).
+
+**Prefect Structure:**
+
+<ProcessFlow
+  steps={[
+    { label: "@task decorator makes functions retriable and monitorable", color: colors.blue },
+    { label: "@flow decorator groups tasks and infers dependencies", color: colors.green },
+    { label: "Worker polls work pool for scheduled runs", color: colors.purple },
+    { label: "Tasks execute with automatic retry on failure", color: colors.orange }
+  ]}
+/>
+
+**Agent/Worker Model:**
+
+A worker polls a work pool for scheduled flow runs and executes them. This makes it easy to run flows across different environments without leaving a terminal open.
+
+### 3.2. Scheduling in Prefect
+
+Prefect supports multiple scheduling styles:
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <strong>Cron Schedules</strong>
+    <p>Traditional, predictable time-based runs</p>
+    <p>Example: 0 2 * * * for 2 AM daily</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Interval Schedules</strong>
+    <p>Run every N seconds/minutes</p>
+    <p>Example: interval: 30 for every 30 seconds</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Event-Driven Triggers</strong>
+    <p>Run when something happens</p>
+    <p>S3 file arrival, webhook, upstream job finish</p>
+  </Box>
+</CardGrid>
+
+### 3.3. Best Practices for Scheduling
+
+Regardless of which orchestrator you use (Airflow, Prefect, or others), these general best practices apply:
+
+#### Use Cron/Time Schedules Judiciously
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Add Buffer Time</strong>
+    <p>If data is available by 1 AM, schedule job at 3 AM to be safe</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Mind Time Zones</strong>
+    <p>Be explicit about time zones to avoid confusion</p>
+  </Box>
+</CardGrid>
+
+#### Event-Driven Triggers
+
+**In plain English:** Instead of checking every hour if new data arrived, set up a notification that starts your pipeline the moment data lands.
+
+**In technical terms:** Use event triggers (cloud storage pub/sub notifications, webhooks) to launch pipelines when conditions are met, rather than polling on a schedule.
+
+**Why it matters:** Event triggers are efficient—you do not run jobs when not needed. However, they require integration with external systems.
+
+#### Retries and Idempotence
+
+<CardGrid columns={2}>
+  <Box color={colors.orange}>
+    <strong>Configure Retries</strong>
+    <p>Always configure retries for tasks prone to transient failures (network calls, database queries)</p>
+  </Box>
+  <Box color={colors.purple}>
+    <strong>Make Tasks Idempotent</strong>
+    <p>If a task runs twice with same inputs, the effect is the same (or at least not harmful)</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Idempotent tasks are crucial for reliability. If a task fails midway and partially completes something before failure, a retry will not break things.
+
+#### Production vs Development Environments
+
+**Best Practice:** Have separate environments for dev/test pipelines vs production. For Prefect, use different projects or namespaces. This prevents tests from colliding with real runs.
+
+#### Immutable Infrastructure for Pipelines
+
+**In plain English:** Package your pipeline code in a container so it runs the same way everywhere—on your laptop, in staging, and in production.
+
+**In technical terms:** Containerize pipeline code to ensure the same environment (library versions, dependencies) across all deployments, avoiding "it worked on my laptop" issues.
+
+**Why it matters:** Immutable, containerized pipelines prevent version conflicts and ensure reproducibility, which is crucial for ML systems with specific library dependencies.
+
+#### Documentation
+
+Document your pipelines: what each does, the schedule, and upstream/downstream data. Orchestrators usually allow adding descriptions. This becomes valuable for future maintenance and team collaboration.
+
+<ProcessFlow
+  steps={[
+    { label: "Define pipeline purpose and schedule", color: colors.blue },
+    { label: "Document data sources and dependencies", color: colors.green },
+    { label: "Specify error handling and retry logic", color: colors.purple },
+    { label: "Maintain update history and versioning", color: colors.orange }
+  ]}
+/>
+
+## 4. Conclusion
+
+In this chapter, we extended our exploration of data and ML pipelines by examining Apache Spark and Prefect-based orchestration.
+
+**Key Achievements:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Spark Mastery</strong>
+    <p>• Examined DataFrames and distributed execution</p>
+    <p>• Built leakage-safe ML pipelines</p>
+    <p>• Understood lazy evaluation and partitioning</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Orchestration Excellence</strong>
+    <p>• Explored Prefect for workflow management</p>
+    <p>• Learned scheduling best practices</p>
+    <p>• Understood event-driven pipelines</p>
+  </Box>
+</CardGrid>
+
+**Core Takeaways:**
+
+1. **Spark is not just about speed** on a single machine, but about resilience and scalability when pipelines grow to billions of rows or cluster-scale workloads
+
+2. **Orchestration bridges the gap** between building pipelines and running them reliably in production
+
+3. **Solid data engineering** combined with robust pipelines and workflow managers enables scalable, reliable ML systems
+
+With this chapter, we complete the core aspects of the data phase of the MLOps lifecycle. In our three-part discussion (Parts 5, 6, 7) on data processing and management, we have journeyed from raw data to understanding advanced data concepts, tooling, and best practices at each step.
+
+**Moving ahead, we will continue with:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <strong>Next Topics</strong>
+    <p>• Model development and practices</p>
+    <p>• CI/CD workflows for ML systems</p>
+  </Box>
+  <Box color={colors.green}>
+    <strong>Advanced Topics</strong>
+    <p>• Real-world case studies</p>
+    <p>• Monitoring and observation</p>
+    <p>• LLMOps considerations</p>
+  </Box>
+</CardGrid>
+
+:::tip Key Philosophy
+The objective of this course is to lean heavily into conceptual knowledge. Implementation specifics may vary by use case, scale, and industry. If you deeply understand the underlying system design and lifecycle principles, you will be well-equipped to navigate any stack.
+:::
+
+The aim, as always, is to help you cultivate a mature, system-centric mindset—one that treats machine learning not as a standalone artifact but as a living part of a broader software ecosystem.

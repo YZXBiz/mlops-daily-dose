@@ -1,0 +1,593 @@
+---
+sidebar_position: 6
+title: "Data and Pipeline Engineering - Part B"
+description: "Advanced data concepts including sampling strategies, class imbalance, data leakage, and hands-on feature stores with Feast"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# Data and Pipeline Engineering - Part B
+
+> *"Data design choices - sampling, imbalance handling, and leakage prevention - are as critical as the model itself. Feature stores elevate these practices from ad hoc fixes to system-wide guarantees."*
+
+## Table of Contents
+
+1. [Sampling Strategies](#sampling-strategies)
+   - 1.1. [Non-Probability Sampling](#non-probability-sampling-methods)
+   - 1.2. [Probability Sampling](#probability-random-sampling-methods)
+2. [Data Design: Class Imbalance](#data-design-class-imbalance)
+   - 2.1. [Data-Level Methods](#data-level-methods-resampling)
+   - 2.2. [Algorithm-Level Methods](#algorithm-level-methods-cost-sensitive-learning)
+3. [Data Leakage](#data-leakage)
+   - 3.1. [Common Causes](#common-causes-of-data-leakage)
+   - 3.2. [Detection and Prevention](#detecting-and-preventing-leakage)
+4. [Feature Stores at Scale (Feast)](#feature-stores-at-scale-feast)
+   - 4.1. [Why Feature Stores](#why-feature-stores)
+   - 4.2. [Feast Architecture](#feast-architecture-brief)
+5. [Hands-On: Feast-Backed ML Pipeline](#hands-on-feast-backed-ml-data-pipeline)
+   - 5.1. [Repository Setup](#repository--configuration-bootstrap)
+   - 5.2. [Define Feast Objects](#define-feast-objects)
+   - 5.3. [Point-in-Time Features](#retrieve-point-in-time-features)
+6. [Conclusion](#conclusion)
+
+## Sampling Strategies
+
+Sampling is the practice of selecting a subset of data from a larger pool. In machine learning, sampling occurs at many stages of the workflow.
+
+**In plain English:** Sampling is like taking a representative sample of soup to taste - you do not need to consume the entire pot to know if it needs more salt. But if your sample only has vegetables and misses the meat, you get the wrong impression.
+
+**In technical terms:** Sampling involves selecting a subset of data from a population for training, validation, or analysis. Poor sampling can introduce biases and affect model performance.
+
+**Why it matters:** Good sampling makes model development efficient and ensures generalization. Poor sampling can cause models to perform well on subsets but fail in production.
+
+<DiagramContainer title="Sampling in the ML Lifecycle">
+  <CardGrid columns={3}>
+    <Box color={colors.blue}>
+      <h4>Data Collection</h4>
+      <p>What real-world data to collect for building your dataset</p>
+    </Box>
+    <Box color={colors.green}>
+      <h4>Labeling</h4>
+      <p>Selecting subset of data for expensive labeling</p>
+    </Box>
+    <Box color={colors.orange}>
+      <h4>Train/Val/Test Split</h4>
+      <p>Splitting data for model development</p>
+    </Box>
+    <Box color={colors.purple}>
+      <h4>Mini-Batch Training</h4>
+      <p>Sampling data during SGD training</p>
+    </Box>
+    <Box color={colors.pink}>
+      <h4>Monitoring</h4>
+      <p>Logging fraction of predictions for analysis</p>
+    </Box>
+    <Box color={colors.yellow}>
+      <h4>Experimentation</h4>
+      <p>Downsampling for quick prototypes</p>
+    </Box>
+  </CardGrid>
+</DiagramContainer>
+
+### Non-Probability Sampling Methods
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Convenience Sampling</h4>
+    <p>Selecting data that is easiest to obtain</p>
+    <p><strong>Risk:</strong> High bias - sample may not represent overall population</p>
+    <p><strong>Example:</strong> Using first 10,000 records because they are readily available</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Snowball Sampling</h4>
+    <p>Using existing samples to recruit further data</p>
+    <p><strong>Use Case:</strong> Social networks or graphs</p>
+    <p><strong>Risk:</strong> Over-represents tightly connected communities</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Judgment (Purposive) Sampling</h4>
+    <p>Experts hand-pick important cases</p>
+    <p><strong>Benefit:</strong> Incorporates domain knowledge</p>
+    <p><strong>Risk:</strong> Subjective and can reflect expert biases</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Quota Sampling</h4>
+    <p>Ensure predefined quantities of different subgroups</p>
+    <p><strong>Example:</strong> Exactly 100 samples per class</p>
+    <p><strong>Risk:</strong> Selection within quotas may still be biased</p>
+  </Box>
+</CardGrid>
+
+:::warning When to Use Non-Probability Sampling
+Non-probability sampling is often acceptable for early prototyping or when data access is limited. However, models built on non-random samples may not be reliable. Before deploying, retrain on more representative samples.
+:::
+
+### Probability (Random) Sampling Methods
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Simple Random Sampling</h4>
+    <p>Each data point has equal chance of selection</p>
+    <p><strong>Benefit:</strong> Unbiased baseline approach</p>
+    <p><strong>Risk:</strong> May miss rare but important subgroups</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Weighted Sampling</h4>
+    <p>Each sample given a weight (probability) for selection</p>
+    <p><strong>Use Case:</strong> Oversample minority classes or emphasize recent data</p>
+    <p><strong>Implementation:</strong> Python random.choices with weights</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Stratified Sampling</h4>
+    <p>Divide population into strata and sample from each group</p>
+    <p><strong>Benefit:</strong> Ensures representation of all groups</p>
+    <p><strong>Use Case:</strong> Train/test splits for imbalanced classification</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Reservoir Sampling</h4>
+    <p>Algorithm for sampling from streaming data of unknown size</p>
+    <p><strong>Use Case:</strong> Maintain random sample of fixed size from stream</p>
+    <p><strong>Benefit:</strong> Works without storing all data</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Always ask: "Does my sample reflect the real-world distribution relevant to the model's deployment?" Use stratification when splitting datasets by class, time, or other key criteria.
+
+## Data Design: Class Imbalance
+
+Class imbalance is not an edge case; in production ML, it is the norm.
+
+**In plain English:** Imagine training a fraud detector where 99.9% of transactions are legitimate. If your model just predicts "not fraud" every time, it gets 99.9% accuracy but catches zero fraud - completely useless.
+
+**In technical terms:** Most interesting problems involve detecting rare events: fraudulent transactions, customer churn, equipment failure, or disease diagnosis. The vast majority of data belongs to the "normal" or negative class.
+
+**Why it matters:** Class imbalance poses challenges including insufficient signal from minority class, degenerate solutions (always predict majority), and asymmetric error costs (false negatives often more costly than false positives).
+
+<DiagramContainer title="Challenges of Class Imbalance">
+  <CardGrid columns={3}>
+    <Box color={colors.red}>
+      <h4>Insufficient Signal</h4>
+      <p>Very few examples of minority class means the model lacks information to learn patterns</p>
+    </Box>
+    <Box color={colors.orange}>
+      <h4>Degenerate Solutions</h4>
+      <p>Easy for model to achieve high accuracy by always predicting majority class</p>
+    </Box>
+    <Box color={colors.yellow}>
+      <h4>Asymmetric Costs</h4>
+      <p>Missing fraud (false negative) often far more costly than flagging legitimate transaction (false positive)</p>
+    </Box>
+  </CardGrid>
+</DiagramContainer>
+
+:::warning Accuracy is Misleading
+For datasets with class imbalance, accuracy alone is not a reliable metric. In a dataset where 0.1% of cases are fraudulent, predicting "not fraud" always yields 99.9% accuracy. Use metrics like precision, recall, and F1 score instead.
+:::
+
+### Data-Level Methods (Resampling)
+
+These methods modify the data distribution itself:
+
+<ComparisonTable
+  headers={['Method', 'Approach', 'Benefits', 'Risks']}
+  rows={[
+    ['Undersampling', 'Remove majority class samples', 'Balances classes', 'Discards potentially useful information'],
+    ['Oversampling (Random)', 'Duplicate minority class samples', 'Increases minority signal', 'Can lead to overfitting'],
+    ['SMOTE', 'Synthesize new minority samples by interpolation', 'Creates diverse synthetic data', 'Works best on low-dimensional tabular data'],
+    ['Tomek Links', 'Remove majority samples close to minority', 'Clarifies decision boundary', 'May still lose useful data']
+  ]}
+/>
+
+### Algorithm-Level Methods (Cost-Sensitive Learning)
+
+These methods modify the learning algorithm to be more robust to imbalance:
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Class Weights</h4>
+    <p>Assign weight to each class inversely proportional to frequency</p>
+    <p>Forces model to pay more attention to rare examples</p>
+    <p><strong>Implementation:</strong> class_weight parameter in scikit-learn</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Focal Loss</h4>
+    <p>Dynamically down-weights loss for well-classified examples</p>
+    <p>Allows model to focus on hard-to-classify examples</p>
+    <p><strong>Use Case:</strong> Deep learning on imbalanced datasets</p>
+  </Box>
+</CardGrid>
+
+**In plain English:** Class weights are like telling the model "pay extra attention to these rare cases - mistakes here are expensive." Focal loss is like automatically identifying what the model finds easy and hard, then focusing effort on the hard cases.
+
+**In technical terms:** Class weights apply a multiplier to the loss for each class based on inverse frequency. Focal loss adds a modulating factor (1 - pt)^γ to standard cross-entropy, reducing contribution from confident predictions.
+
+**Why it matters:** Algorithm-level methods keep the original data distribution intact while making the model more robust to imbalance - often the preferred approach for modern deep learning.
+
+## Data Leakage
+
+Among the most damaging pitfalls in ML pipelines is data leakage.
+
+**In plain English:** Data leakage is when your model accidentally gets a sneak peek at the answer during training. It is like a student seeing tomorrow's exam questions today - they will score perfectly on the test but fail on new questions.
+
+**In technical terms:** Data leakage occurs when information from outside the training data (often from the future or from the test set) leaks into the features used to train a model.
+
+**Why it matters:** A leaked feature can make a model seem extremely accurate during training/validation, but when deployed, that information is not available (or is ill-gotten), so the model fails unexpectedly.
+
+<DiagramContainer title="Impact of Data Leakage">
+  <ProcessFlow
+    steps={[
+      { label: 'Training', description: 'Model achieves 99% accuracy with leaked feature' },
+      { label: 'Validation', description: 'Still 99% - looks great' },
+      { label: 'Deployment', description: 'Leaked feature not available' },
+      { label: 'Production', description: 'Performance drops to 60% - disaster' }
+    ]}
+  />
+</DiagramContainer>
+
+### Common Causes of Data Leakage
+
+<CardGrid columns={2}>
+  <Box color={colors.red}>
+    <h4>Train/Test Contamination</h4>
+    <p>Test data gets into training set</p>
+    <p><strong>Causes:</strong> Random shuffle of time-dependent data, duplicates across splits</p>
+    <p><strong>Prevention:</strong> Rigorous deduplication, temporal splits for time series</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Leaking Through Preprocessing</h4>
+    <p>Using test data statistics for normalization</p>
+    <p><strong>Example:</strong> Scaling features using min/max of entire dataset</p>
+    <p><strong>Prevention:</strong> Fit preprocessing only on training set</p>
+  </Box>
+  <Box color={colors.yellow}>
+    <h4>Target-Derived Features</h4>
+    <p>Features that encode information about the target</p>
+    <p><strong>Example:</strong> Including "logins next month" to predict churn</p>
+    <p><strong>Prevention:</strong> Only use data available at prediction time</p>
+  </Box>
+  <Box color={colors.pink}>
+    <h4>Time-Series Leakage</h4>
+    <p>Using future information in features</p>
+    <p><strong>Example:</strong> Training on 2021 to predict 2020</p>
+    <p><strong>Prevention:</strong> Use temporal splits, cut off cumulative features</p>
+  </Box>
+</CardGrid>
+
+:::caution Real-World Example
+A famous medical ML model predicting disease from X-rays seemed extremely accurate, but later it was discovered that many "disease" images had a certain marker or scanner type that only patients with that disease used. The model was picking up on the marker, not the disease itself.
+:::
+
+### Detecting and Preventing Leakage
+
+<ProcessFlow
+  steps={[
+    { label: 'Holdout Validation', description: 'Evaluate on truly held-out data' },
+    { label: 'Feature Importance', description: 'Check for suspiciously important features' },
+    { label: 'Null Models', description: 'Test with shuffled labels or backward time' },
+    { label: 'Ablation Studies', description: 'Remove suspicious features systematically' },
+    { label: 'Pipeline Testing', description: 'Test impossible scenarios to detect leakage' }
+  ]}
+/>
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Prevention Checklist</h4>
+    <ul>
+      <li>Split train/val/test early and never peek at test</li>
+      <li>Fit preprocessing on train only</li>
+      <li>For time series, use time-based split</li>
+      <li>If oversampling, do it after splitting</li>
+      <li>Use group K-fold for non-independent data</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Detection Strategies</h4>
+    <ul>
+      <li>Check feature importance for anomalies</li>
+      <li>Test with shuffled labels (should fail)</li>
+      <li>Use backward time prediction (should fail)</li>
+      <li>Remove suspicious features and observe impact</li>
+      <li>Compare performance to baseline models</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> A simple rule to remember: "Scale and normalize your data after splitting to avoid data leakage. Use statistics from only the train split to scale your features and handle missing values."
+
+## Feature Stores at Scale (Feast)
+
+As machine learning systems mature, organizations find themselves reusing features across models and needing consistent data for training and serving. Feature stores have emerged to address this.
+
+**In plain English:** A feature store is like a centralized kitchen prep station in a restaurant. Instead of each chef chopping onions separately (inefficient and inconsistent), there is one station that prepares ingredients once and serves all chefs (efficient and consistent).
+
+**In technical terms:** A feature store is a centralized data store and management system for ML features. It provides consistent feature definitions, offline storage for training, and online storage for real-time serving.
+
+**Why it matters:** Without feature stores, teams duplicate feature computation, create inconsistencies between training and serving, and struggle with reproducibility. Feature stores solve these problems at scale.
+
+<DiagramContainer title="Feature Store Benefits">
+  <StackDiagram
+    layers={[
+      { label: 'Feature Computation', size: 2, color: colors.blue },
+      { label: 'Offline Store (Training)', size: 2, color: colors.green },
+      { label: 'Online Store (Serving)', size: 2, color: colors.orange },
+      { label: 'Consistent Definitions', size: 1, color: colors.purple },
+      { label: 'Point-in-Time Correctness', size: 1, color: colors.pink }
+    ]}
+  />
+</DiagramContainer>
+
+### Why Feature Stores?
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Reusability</h4>
+    <p>Compute features once, use everywhere</p>
+    <p>Avoid duplication across teams and models</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Consistency</h4>
+    <p>Same feature logic for training and serving</p>
+    <p>Prevents training-serving skew</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Performance</h4>
+    <p>Online lookup with low latency</p>
+    <p>Avoid recomputing features in real-time</p>
+  </Box>
+</CardGrid>
+
+### Feast Architecture (Brief)
+
+Feast is a popular open-source feature store. Key concepts:
+
+<ComparisonTable
+  headers={['Concept', 'Description', 'Purpose']}
+  rows={[
+    ['Entity', 'Primary key (e.g., customer_id)', 'Identifies subject of features'],
+    ['Feature View', 'Group of features with schema and data source', 'Defines what features exist and how to get them'],
+    ['Offline Store', 'Historical feature storage (BigQuery, Parquet)', 'For training dataset generation'],
+    ['Online Store', 'Fast key-value store (Redis, SQLite)', 'For real-time serving'],
+    ['Feature Service', 'Groupings of features', 'Convenient retrieval bundles']
+  ]}
+/>
+
+> **Insight**
+>
+> Feast ensures point-in-time correctness: when creating training data, it joins features so that each training example's features are only from prior timestamps, preventing leakage.
+
+## Hands-On: Feast-Backed ML Data Pipeline
+
+In this hands-on, we will simulate a compact end-to-end feature pipeline using Pandas, NumPy, Scikit-learn, and Feast.
+
+<ProcessFlow
+  steps={[
+    { label: 'Setup Feast', description: 'Initialize repo with offline/online stores' },
+    { label: 'Prepare Data', description: 'Clean and simulate timestamps' },
+    { label: 'Define Objects', description: 'Entity, Source, FeatureView' },
+    { label: 'Point-in-Time Join', description: 'Get historical features safely' },
+    { label: 'Train Model', description: 'Use leakage-safe features' },
+    { label: 'Materialize', description: 'Push to online store for serving' }
+  ]}
+/>
+
+### Repository & Configuration Bootstrap
+
+```python
+import yaml
+import shutil
+from pathlib import Path
+
+# Create clean Feast repo
+repo_path = Path('feast_telco_repo')
+if repo_path.exists():
+    shutil.rmtree(repo_path)
+repo_path.mkdir()
+
+# Configure Feast
+config = {
+    'project': 'telco_churn',
+    'provider': 'local',
+    'registry': str(repo_path / 'data' / 'registry.db'),
+    'online_store': {'type': 'sqlite', 'path': str(repo_path / 'data' / 'online_store.db')},
+    'offline_store': {'type': 'file'}
+}
+
+with open(repo_path / 'feature_store.yaml', 'w') as f:
+    yaml.dump(config, f)
+
+(repo_path / 'data').mkdir(exist_ok=True)
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Offline Store (File)</h4>
+    <p>Reads Parquet/CSV from disk for training dataset generation</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Online Store (SQLite)</h4>
+    <p>Quick key-value lookup for serving predictions in production</p>
+  </Box>
+</CardGrid>
+
+### Define Feast Objects
+
+```python
+from feast import Entity, FeatureView, Field, FileSource, FeatureStore
+from feast.types import Float32, Int64, String
+from datetime import timedelta
+
+# Define entity
+customer = Entity(
+    name="customer_id",
+    join_keys=["customer_id"],
+    value_type=String
+)
+
+# Define data source
+source = FileSource(
+    path="feast_telco_repo/data/telco_features.parquet",
+    timestamp_field="event_timestamp",
+    created_timestamp_column="created_at"
+)
+
+# Define schema
+schema = [
+    Field(name="tenure", dtype=Float32),
+    Field(name="monthly_charges", dtype=Float32),
+    Field(name="total_charges", dtype=Float32),
+    # ... more features
+]
+
+# Create FeatureView
+customer_stats = FeatureView(
+    name="customer_stats",
+    entities=[customer],
+    ttl=timedelta(days=365),
+    schema=schema,
+    source=source,
+    online=True
+)
+
+# Apply to Feast
+store = FeatureStore(repo_path=str(repo_path))
+store.apply([customer, customer_stats])
+```
+
+<DiagramContainer title="Feast Object Hierarchy">
+  <ProcessFlow
+    steps={[
+      { label: 'Entity', description: 'customer_id (primary key)' },
+      { label: 'FileSource', description: 'Points to parquet with timestamps' },
+      { label: 'FeatureView', description: 'Schema + source + entity linkage' },
+      { label: 'FeatureStore', description: 'Manages offline/online stores' }
+    ]}
+  />
+</DiagramContainer>
+
+### Retrieve Point-in-Time Features
+
+```python
+# Build entity dataframe with labels and timestamps
+entity_df = pd.DataFrame({
+    'customer_id': df['customer_id'],
+    'event_timestamp': df['label_ts'],
+    'label': df['churn']
+})
+
+# Get historical features (point-in-time join)
+training_data = store.get_historical_features(
+    entity_df=entity_df,
+    features=['customer_stats:tenure', 'customer_stats:monthly_charges', ...]
+)
+
+training_df = training_data.to_df()
+```
+
+**In plain English:** Feast looks at each row in entity_df and asks: "What were the feature values for this customer at this timestamp?" It only uses feature values recorded on or before that timestamp, never after.
+
+**In technical terms:** The get_historical_features() method performs a point-in-time join between the entity dataset (with timestamps) and the feature store. For each row, it retrieves feature values valid at that specific timestamp, ensuring no future data leaks into training.
+
+**Why it matters:** This is how Feast prevents data leakage at the system level. The features available at training time are exactly those that would have been available in production at that moment.
+
+:::tip Temporal Split After Point-in-Time Join
+```python
+# Split chronologically (not randomly)
+timestamps = training_df['event_timestamp'].sort_values()
+train_cutoff = timestamps.quantile(0.70)
+val_cutoff = timestamps.quantile(0.85)
+
+train_df = training_df[training_df['event_timestamp'] < train_cutoff]
+val_df = training_df[(training_df['event_timestamp'] >= train_cutoff) &
+                     (training_df['event_timestamp'] < val_cutoff)]
+test_df = training_df[training_df['event_timestamp'] >= val_cutoff]
+```
+:::
+
+### Materialize to Online & Feature Lookup
+
+```python
+from feast import FeatureService
+
+# Materialize features to online store
+store.materialize(
+    start_date=datetime(2020, 1, 1),
+    end_date=datetime(2020, 12, 31)
+)
+
+# Define feature service
+bundle = FeatureService(
+    name="churn_prediction_v1",
+    features=[customer_stats]
+)
+store.apply([bundle])
+
+# Fetch online features (serving simulation)
+online_features = store.get_online_features(
+    features=bundle,
+    entity_rows=[
+        {'customer_id': '1234-ABCD'},
+        {'customer_id': '5678-EFGH'}
+    ]
+).to_dict()
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Offline Retrieval</h4>
+    <p>For training: get_historical_features()</p>
+    <p>Point-in-time join ensures leakage safety</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Online Retrieval</h4>
+    <p>For serving: get_online_features()</p>
+    <p>Low-latency lookup by entity keys</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> The principle is training-serving consistency. Online lookups use the same FeatureView/Service as offline training, ensuring identical feature logic in both environments.
+
+## Conclusion
+
+In this chapter, we extended our exploration of data pipelines by focusing on four crucial concepts: sampling strategies, class imbalance handling, data leakage prevention, and feature stores.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Sampling Precision</h4>
+    <p>Use stratification for important subgroups. Always ask if sample reflects real-world deployment distribution.</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Imbalance Solutions</h4>
+    <p>Data-level (resampling) and algorithm-level (class weights, focal loss) methods prioritize real-world impact over accuracy.</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Leakage Prevention</h4>
+    <p>Principle of prediction-time correctness: only use data that would be available at prediction time.</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Feature Stores</h4>
+    <p>Feast ensures leakage-safe, consistent, scalable pipelines through point-in-time correctness and unified feature definitions.</p>
+  </Box>
+</CardGrid>
+
+### What's Next
+
+Future chapters will explore:
+
+- Orchestration and workflow management
+- CI/CD workflows tailored for ML systems
+- Real-world case studies from industry
+- Model development and practices
+- Monitoring and observation in production
+- Special considerations for LLMOps
+
+> **Insight**
+>
+> Data design choices are as critical as the model itself. Feature stores like Feast elevate best practices from ad hoc fixes to system-wide guarantees, ensuring reliable ML at scale.

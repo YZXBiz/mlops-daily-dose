@@ -1,0 +1,606 @@
+---
+sidebar_position: 4
+title: "Reproducibility and Versioning - Part B"
+description: "Advanced reproducibility with Weights & Biases, covering experiment tracking, artifacts, and model registry for scikit-learn and PyTorch"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# Reproducibility and Versioning in ML Systems - Part B
+
+> *"Tools come and go, but if you deeply understand the underlying system design principles, you will be well-equipped to navigate any MLOps stack."*
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Weights and Biases Core Philosophy](#weights-and-biases-core-philosophy)
+3. [MLflow vs Weights & Biases](#comparison-mlflow-vs-wb)
+4. [Hands-On: Predictive Modeling with Scikit-Learn](#predictive-modeling-with-scikit-learn)
+   - 4.1. [Dataset Versioning with W&B Artifacts](#dataset-versioning-with-wb-artifacts)
+   - 4.2. [Experiment Tracking](#tracking-experiments-with-scikit-learn-integration)
+   - 4.3. [Model Registry](#model-registry-and-promotion)
+5. [Hands-On: Time Series Forecasting with PyTorch](#time-series-forecasting-with-pytorch)
+   - 5.1. [Multi-Stage Data Pipeline](#building-a-reproducible-data-pipeline)
+   - 5.2. [PyTorch Integration](#pytorch-integration-and-training)
+   - 5.3. [Model Checkpointing](#model-versioning-and-checkpointing)
+6. [Conclusion](#conclusion)
+
+## Introduction
+
+Before we dive into Weights & Biases (W&B), let's quickly refresh the core ideas related to reproducibility and versioning.
+
+**In plain English:** Machine learning projects do not end with building a model that performs well on a single training run. Success requires tracking every experiment, versioning every dataset, and ensuring that any result can be consistently reproduced.
+
+**In technical terms:** In ML systems, we have not just code but also data, models, hyperparameters, training configurations, and environment dependencies. Ensuring reproducibility means that any result you obtain can be consistently reproduced later, given the same inputs.
+
+**Why it matters:** Systematic logging enables experiment reproducibility and auditing. Teams can validate each other's results, compare experiments on equal footing, and roll back to previous models or datasets if needed.
+
+<DiagramContainer title="Reproducibility and Versioning Ecosystem">
+  <StackDiagram
+    layers={[
+      { label: 'Code Versioning (Git)', size: 2, color: colors.blue },
+      { label: 'Dataset Versioning (DVC, W&B Artifacts)', size: 3, color: colors.green },
+      { label: 'Experiment Tracking (MLflow, W&B)', size: 3, color: colors.orange },
+      { label: 'Model Versioning (Model Registry)', size: 2, color: colors.purple }
+    ]}
+  />
+</DiagramContainer>
+
+Versioning in ML goes hand-in-hand with reproducibility. We need version control not only for code, but for datasets and models:
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Dataset Versioning</h4>
+    <p>Manage datasets as versioned assets, similar to how code is versioned. Track updates, labels, and transformations.</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Model Versioning</h4>
+    <p>Keep track of different model checkpoints with evaluation metrics. Roll back to prior models if new deployments have issues.</p>
+  </Box>
+</CardGrid>
+
+## Weights and Biases Core Philosophy
+
+W&B positions itself as "the developer-first MLOps platform." It is cloud-based and primarily focused on experiment tracking, dataset/model versioning, and collaboration.
+
+**In plain English:** Think of W&B as a combination of a lab notebook, a version control system, and a collaboration platform - all specifically designed for machine learning workflows.
+
+**In technical terms:** The central thesis of W&B is that the highest-leverage activity in machine learning is the cycle of training a model, tracking its performance, comparing it to previous attempts, and deciding what to try next.
+
+**Why it matters:** W&B makes this loop fast, insightful, and collaborative through interactive dashboards, automatic logging, and seamless artifact management.
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Interactive UI</h4>
+    <p>Dashboards to compare runs, visualize metrics, and create reports</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Framework Integration</h4>
+    <p>Out-of-the-box support for PyTorch, TensorFlow, scikit-learn, Keras, HuggingFace</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Cloud-First</h4>
+    <p>Hosted service with free and paid tiers. Also supports self-managed deployments</p>
+  </Box>
+</CardGrid>
+
+## Comparison: MLflow vs W&B
+
+<ComparisonTable
+  headers={['Feature / Aspect', 'MLflow', 'Weights & Biases (W&B)']}
+  rows={[
+    ['Nature', 'Open-source, self-hosted', 'Cloud-first, hosted (free & paid tiers)'],
+    ['Experiment Tracking', 'Logs parameters, metrics, artifacts', 'Similar but with richer visualizations'],
+    ['UI', 'Basic web UI, simple plots', 'Advanced dashboard with interactive charts'],
+    ['Collaboration', 'Limited', 'Strong: team dashboards, reporting'],
+    ['Artifacts Storage', 'Local (default)', 'Hosted (or external bucket)'],
+    ['Ease of Use', 'Simple API, more manual config', 'User-friendly, lots of integrations'],
+    ['Offline Use', 'Fully possible', 'Possible, but main strength is online'],
+    ['Best For', 'Local/enterprise setups, custom infra', 'Fast setup, visualization-heavy workflows']
+  ]}
+/>
+
+:::tip Why Learn Both?
+- **W&B:** Cuts infrastructure overhead and boosts collaboration/visualization
+- **MLflow:** Leaner, more flexible, self-managed
+- Neither is inherently superior - the right choice depends entirely on the use case and application scenario
+:::
+
+> **Insight**
+>
+> Core takeaway: W&B cuts infra overhead and boosts collaboration/visualization, while MLflow is leaner but self-managed.
+
+## Predictive Modeling with Scikit-Learn
+
+Let's build our first complete, reproducible machine learning project using Weights & Biases. We will use the California housing prices dataset and train a RandomForestRegressor.
+
+<ProcessFlow
+  steps={[
+    { label: 'Setup Account', description: 'Create W&B account and authenticate' },
+    { label: 'Version Dataset', description: 'Log data as W&B artifact' },
+    { label: 'Track Training', description: 'Log parameters and metrics' },
+    { label: 'Version Model', description: 'Save model as artifact' },
+    { label: 'Register', description: 'Link to model registry' }
+  ]}
+/>
+
+### Dataset Versioning with W&B Artifacts
+
+Our first step in building a reproducible pipeline is to version our dataset. In W&B, the mechanism for versioning any file or collection of files is W&B Artifacts.
+
+**In plain English:** Think of an artifact as a versioned, cloud-backed folder. It is like having a time machine for your data - you can always go back to exactly what you used.
+
+**In technical terms:** W&B Artifacts act as a versioned, cloud-backed storage system that maintains references to data files along with metadata, ensuring reproducibility across training runs.
+
+**Why it matters:** We cannot guarantee a reproducible result if we cannot guarantee we are using the exact same data.
+
+```python
+import wandb
+from sklearn.datasets import fetch_california_housing
+import pandas as pd
+
+# Initialize W&B run
+run = wandb.init(
+    project="house-price-prediction",
+    job_type="upload-dataset"
+)
+
+# Fetch and save data
+housing = fetch_california_housing()
+df = pd.DataFrame(housing.data, columns=housing.feature_names)
+df['target'] = housing.target
+df.to_csv('california_housing.csv', index=False)
+
+# Create artifact
+artifact = wandb.Artifact(
+    name='california-housing-raw',
+    type='dataset',
+    description='California housing dataset from sklearn',
+    metadata={'source': 'sklearn.datasets', 'rows': len(df)}
+)
+
+# Add file to artifact
+artifact.add_file('california_housing.csv')
+
+# Log artifact to W&B
+run.log_artifact(artifact)
+run.finish()
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Key Components</h4>
+    <ul>
+      <li><strong>project:</strong> Groups related runs together</li>
+      <li><strong>job_type:</strong> Categorizes runs (upload, train, evaluate)</li>
+      <li><strong>artifact:</strong> Versioned collection of files</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Artifact Benefits</h4>
+    <ul>
+      <li>Automatic versioning (v0, v1, v2...)</li>
+      <li>Cloud storage integration</li>
+      <li>Lineage tracking</li>
+      <li>Latest/specific version retrieval</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+### Tracking Experiments with Scikit-Learn Integration
+
+A key principle of reproducibility is explicitly declaring the dependencies of your computation. Our training run depends on our dataset artifact.
+
+```python
+import wandb
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, r2_score
+
+# Define hyperparameters
+config = {
+    'n_estimators': 100,
+    'max_depth': 10,
+    'random_state': 42
+}
+
+# Start training run
+run = wandb.init(
+    project="house-price-prediction",
+    job_type="train",
+    config=config,
+    tags=["random-forest", "baseline"]
+)
+
+# Pull dataset artifact from W&B
+artifact = run.use_artifact('california-housing-raw:latest')
+artifact_dir = artifact.download()
+df = pd.read_csv(f"{artifact_dir}/california_housing.csv")
+
+# Prepare data
+X = df.drop('target', axis=1)
+y = df['target']
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42
+)
+
+# Train model
+model = RandomForestRegressor(
+    n_estimators=wandb.config.n_estimators,
+    max_depth=wandb.config.max_depth,
+    random_state=wandb.config.random_state
+)
+model.fit(X_train, y_train)
+
+# Evaluate and log metrics
+y_pred = model.predict(X_test)
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+wandb.log({'mse': mse, 'r2': r2})
+
+# Log sklearn visualizations
+wandb.sklearn.plot_regressor(
+    model, X_train, X_test, y_train, y_test
+)
+
+# Save and version model
+import joblib
+joblib.dump(model, 'rf_model.pkl')
+
+model_artifact = wandb.Artifact(
+    name='house-price-rf-regressor',
+    type='model',
+    description='Random Forest for house price prediction',
+    metadata={'mse': mse, 'r2': r2}
+)
+model_artifact.add_file('rf_model.pkl')
+run.log_artifact(model_artifact)
+
+run.finish()
+```
+
+<DiagramContainer title="W&B Lineage Graph">
+  <ProcessFlow
+    steps={[
+      { label: 'Dataset Artifact', description: 'california-housing-raw:v0' },
+      { label: 'Training Run', description: 'job_type=train' },
+      { label: 'Model Artifact', description: 'house-price-rf-regressor:v0' }
+    ]}
+  />
+</DiagramContainer>
+
+> **Insight**
+>
+> The lineage graph in W&B UI provides a rigorous, auditable record of your experiment. It answers: "How was this model created?" You can click on any node to inspect its details.
+
+### Model Registry and Promotion
+
+In production, you might have hundreds of model artifacts from various experiments. Only a few are candidates for production/staging. The W&B Registry is a centralized, curated space for these candidate artifacts.
+
+**In plain English:** The model registry is like a curated gallery of your best models. Not every painting (model) makes it to the gallery - only the ones worthy of production.
+
+**In technical terms:** The registry decouples production/staging systems from rapid iteration of experimentation workflows through versioning and aliasing mechanisms.
+
+**Why it matters:** You can programmatically pull models by alias (e.g., "production", "staging") without hardcoding version numbers, enabling continuous deployment workflows.
+
+```python
+# Programmatic model retrieval from registry
+import wandb
+
+run = wandb.init(project="house-price-prediction")
+artifact = run.use_artifact(
+    'registered-regressors/house-price-rf:staging',
+    type='model'
+)
+model_dir = artifact.download()
+model = joblib.load(f"{model_dir}/rf_model.pkl")
+```
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Staging</h4>
+    <p>Model being tested in staging environment before production</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Production</h4>
+    <p>Currently deployed model serving live traffic</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Latest</h4>
+    <p>Most recently trained model version</p>
+  </Box>
+</CardGrid>
+
+## Time Series Forecasting with PyTorch
+
+Having mastered the fundamentals with scikit-learn, let's explore a more complex challenge: time series forecasting with PyTorch. This will demonstrate how to maintain reproducibility in a deep learning context.
+
+### Use Case: Multi-Step Sales Forecasting
+
+**In plain English:** Imagine you work for an e-commerce company and need to forecast product sales for the next 30 days. Accurate forecasts drive inventory management, supply chain logistics, and financial planning.
+
+**In technical terms:** This is a multi-step forecasting problem that benefits from deep learning models like LSTMs to capture complex temporal patterns in sequential data.
+
+**Why it matters:** Time series forecasting is critical for business planning. Poor forecasts lead to stockouts (lost revenue) or excess inventory (wasted capital).
+
+### Building a Reproducible Data Pipeline
+
+In complex projects, data preparation is often a multi-step process. Instead of monolithic blocks, create a pipeline where each stage is a separate W&B run.
+
+<ProcessFlow
+  steps={[
+    { label: 'Ingest', description: 'Download raw sales data' },
+    { label: 'Preprocess', description: 'Clean and aggregate to daily' },
+    { label: 'Split', description: 'Create train/validation sets' },
+    { label: 'Train', description: 'Train LSTM model' },
+    { label: 'Materialize', description: 'Push to online store' }
+  ]}
+/>
+
+**Stage 1: Data Ingestion**
+
+```python
+import wandb
+import pandas as pd
+
+run = wandb.init(
+    project="sales-forecasting",
+    job_type="ingest-data"
+)
+
+# Fetch raw data
+url = "https://archive.ics.uci.edu/ml/machine-learning-databases/..."
+df = pd.read_csv(url)
+df.to_parquet('raw_sales_data.parquet')
+
+# Log as artifact
+artifact = wandb.Artifact(
+    name='raw-sales-data',
+    type='raw_dataset',
+    description='Raw retail sales data from UCI'
+)
+artifact.add_file('raw_sales_data.parquet')
+run.log_artifact(artifact)
+run.finish()
+```
+
+**Stage 2: Data Preprocessing**
+
+```python
+run = wandb.init(
+    project="sales-forecasting",
+    job_type="preprocess-data"
+)
+
+# Fetch raw data artifact
+artifact = run.use_artifact('raw-sales-data:latest')
+df = pd.read_parquet(f"{artifact.download()}/raw_sales_data.parquet")
+
+# Clean and aggregate
+df = df.dropna(subset=['CustomerID'])
+df = df[df['Quantity'] > 0]
+df['Sales'] = df['Quantity'] * df['UnitPrice']
+
+# Resample to daily
+df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+daily_sales = df.resample('D', on='InvoiceDate')['Sales'].sum()
+
+# Split into train/validation
+train = daily_sales[:-60]
+valid = daily_sales[-60:]
+
+train.to_csv('train.csv')
+valid.to_csv('validation.csv')
+
+# Log processed artifact
+processed_artifact = wandb.Artifact(
+    name='processed-sales-data',
+    type='processed_dataset'
+)
+processed_artifact.add_file('train.csv')
+processed_artifact.add_file('validation.csv')
+run.log_artifact(processed_artifact)
+
+run.finish()
+```
+
+<DiagramContainer title="Multi-Stage Pipeline Lineage">
+  <ProcessFlow
+    steps={[
+      { label: 'raw-sales-data', description: 'Ingestion job' },
+      { label: 'preprocess-data', description: 'Processing job' },
+      { label: 'processed-sales-data', description: 'Training-ready data' }
+    ]}
+  />
+</DiagramContainer>
+
+:::tip Pipeline Flexibility
+W&B's imperative pipeline approach is more flexible than declarative YAML-based pipelines. The pipeline is defined implicitly by execution of Python scripts and their calls to `use_artifact` and `log_artifact`. This is advantageous for rapid experimentation where the pipeline structure itself might change frequently.
+:::
+
+### PyTorch Integration and Training
+
+W&B's integration with PyTorch offers features essential for debugging and understanding deep neural networks.
+
+```python
+import torch
+import torch.nn as nn
+import wandb
+
+# Define LSTM model
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, 1)
+
+    def forward(self, x):
+        lstm_out, _ = self.lstm(x)
+        prediction = self.fc(lstm_out[:, -1, :])
+        return prediction
+
+# Training configuration
+config = {
+    'learning_rate': 0.001,
+    'epochs': 50,
+    'sequence_length': 30,
+    'hidden_size': 64,
+    'seed': 42
+}
+
+# Set seed for reproducibility
+torch.manual_seed(config['seed'])
+
+# Initialize W&B run
+run = wandb.init(
+    project="sales-forecasting",
+    job_type="train",
+    config=config
+)
+
+# Create model and optimizer
+model = LSTMModel(input_size=1, hidden_size=config['hidden_size'], num_layers=2)
+optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'])
+loss_fn = nn.MSELoss()
+
+# Watch model for gradient tracking
+wandb.watch(model, log_freq=100, log='all')
+
+# Training loop
+for epoch in range(config['epochs']):
+    model.train()
+    train_losses = []
+
+    for seq, label in train_loader:
+        optimizer.zero_grad()
+        prediction = model(seq)
+        loss = loss_fn(prediction, label)
+        loss.backward()
+        optimizer.step()
+        train_losses.append(loss.item())
+
+    # Validation
+    model.eval()
+    val_losses = []
+    with torch.no_grad():
+        for seq, label in val_loader:
+            prediction = model(seq)
+            val_loss = loss_fn(prediction, label)
+            val_losses.append(val_loss.item())
+
+    # Log metrics
+    wandb.log({
+        'epoch': epoch,
+        'train_loss': sum(train_losses) / len(train_losses),
+        'val_loss': sum(val_losses) / len(val_losses)
+    })
+
+run.finish()
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>wandb.watch() Features</h4>
+    <ul>
+      <li>Gradient histograms per layer</li>
+      <li>Parameter histograms</li>
+      <li>Model topology graph</li>
+      <li>Automatic update frequency</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Debugging Benefits</h4>
+    <ul>
+      <li>Monitor gradient flow</li>
+      <li>Detect vanishing/exploding gradients</li>
+      <li>Identify instabilities</li>
+      <li>Understand weight evolution</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+### Model Versioning and Checkpointing
+
+In deep learning, we do not just save the final model - we save checkpoints periodically or when achieving new best performance.
+
+```python
+best_loss = float('inf')
+
+for epoch in range(config['epochs']):
+    # ... training code ...
+
+    if avg_val_loss < best_loss:
+        best_loss = avg_val_loss
+
+        # Save checkpoint
+        checkpoint = {
+            'model_state_dict': model.state_dict(),
+            'scaler': scaler,
+            'config': config
+        }
+        torch.save(checkpoint, 'best_model_bundle.pth')
+
+        # Version as artifact
+        model_artifact = wandb.Artifact(
+            name='sales-forecasting-lstm',
+            type='model',
+            metadata={'epoch': epoch, 'val_loss': avg_val_loss}
+        )
+        model_artifact.add_file('best_model_bundle.pth')
+
+        # Use aliases for tracking
+        run.log_artifact(
+            model_artifact,
+            aliases=['best', f'epoch_{epoch}']
+        )
+```
+
+<ComparisonTable
+  headers={['Alias', 'Purpose', 'Usage']}
+  rows={[
+    ['best', 'Always points to current best checkpoint', 'Retrieve best model across all epochs'],
+    ['epoch_N', 'Frozen snapshot for specific epoch', 'Reproduce exact epoch state'],
+    ['latest', 'Most recently logged version', 'Get newest iteration']
+  ]}
+/>
+
+> **Insight**
+>
+> Aliases in W&B make it easy to retrieve specific model versions. For production deployment, fetch by "best" alias. For debugging, fetch by "epoch_25" to analyze specific training state.
+
+## Conclusion
+
+In this chapter, we went hands-on with Weights & Biases to demonstrate tool-driven reproducibility in action.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>W&B Strengths</h4>
+    <p>Experiment tracking, dataset/model versioning, lineage graphs, and registry features bring order and traceability to fast-moving ML projects</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Reproducibility is Structural</h4>
+    <p>Not a "nice-to-have" but a property of mature ML systems. Right tooling makes it second nature.</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>End-to-End Workflows</h4>
+    <p>From scikit-learn tabular regression to PyTorch time series forecasting - artifact management works across paradigms</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Tools Enable Culture</h4>
+    <p>W&B enables collaboration, faster iteration, safer deployments, and long-term maintainability</p>
+  </Box>
+</CardGrid>
+
+### What's Next
+
+Future chapters will explore:
+
+- Data processing and pipelines
+- CI/CD workflows tailored for ML systems
+- Real-world case studies from industry
+- Model development and practices
+- Monitoring and observation in production
+- Special considerations for LLMOps

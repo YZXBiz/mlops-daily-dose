@@ -1,0 +1,691 @@
+---
+sidebar_position: 10
+title: "Model Development and Optimization—Part C"
+description: "Explore advanced model compression techniques: knowledge distillation, low-rank factorization, quantization, and ONNX for framework-agnostic deployment."
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "A smaller, faster model is easier to deploy, especially on edge devices or at scale, and often cheaper to run."
+
+## Table of Contents
+
+1. [Knowledge Distillation](#1-knowledge-distillation)
+   1. [How Distillation Works](#11-how-distillation-works)
+   2. [Response-Based Distillation](#12-response-based-distillation)
+   3. [Temperature and Dark Knowledge](#13-temperature-and-dark-knowledge)
+2. [Low-Rank Factorization](#2-low-rank-factorization)
+   1. [SVD for Weight Compression](#21-svd-for-weight-compression)
+   2. [Choosing the Rank](#22-choosing-the-rank)
+3. [Quantization](#3-quantization)
+   1. [Post-Training Quantization](#31-post-training-quantization)
+   2. [Precision Trade-offs](#32-precision-trade-offs)
+4. [ONNX and ONNX Runtime](#4-onnx-and-onnx-runtime)
+   1. [ONNX as Intermediate Representation](#41-onnx-as-intermediate-representation)
+   2. [Execution Providers](#42-execution-providers)
+   3. [Graph Optimizations](#43-graph-optimizations)
+
+## 1. Knowledge Distillation
+
+### 1.1. How Distillation Works
+
+**In plain English:** Imagine a master chef teaching an apprentice. The apprentice does not just learn recipes (the "what"), they learn the chef's intuition about flavors, timing, and techniques (the "why"). Knowledge distillation works similarly: a large, powerful teacher model teaches a smaller student model not just the correct answers but the nuances and relationships between classes.
+
+**In technical terms:** Knowledge distillation transfers knowledge from a large, complex model (teacher) to a smaller model (student) by training the student on both the original data labels and the soft predictions (probability distributions) of the teacher. The teacher's output contains richer information than one-hot labels—this is called "dark knowledge."
+
+**Why it matters:** The student can be much smaller yet achieve performance close to the teacher. You get deployment efficiency (small model) with accuracy approaching a large model. In some cases, distillation even improves the student's accuracy compared to training it normally.
+
+<ProcessFlow
+  title="Knowledge Distillation Pipeline"
+  steps={[
+    { label: "Train Teacher", description: "Large model on training data (standard training)" },
+    { label: "Freeze Teacher", description: "Keep teacher fixed, use for generating soft targets" },
+    { label: "Train Student", description: "Small model learns from both hard labels and teacher outputs" },
+    { label: "Deploy Student", description: "Small, fast model with teacher-level performance" }
+  ]}
+/>
+
+**Benefits:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Compression</strong>
+    <br />
+    Student can be 10-100x smaller than teacher while maintaining competitive accuracy
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Ensemble Distillation</strong>
+    <br />
+    Distill multiple models into one student, combining their knowledge
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Improved Generalization</strong>
+    <br />
+    Teacher acts as smoother, providing better training signal than hard labels alone
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Framework Flexibility</strong>
+    <br />
+    Teacher and student can use different architectures or frameworks
+  </Box>
+</CardGrid>
+
+**Trade-offs:**
+
+:::caution Resource Constraints
+Training the large teacher model first is an upfront cost. If you are resource-constrained even in the development environment, distillation may not be feasible. However, you can use existing public models as teachers.
+:::
+
+### 1.2. Response-Based Distillation
+
+The most common distillation technique focuses on matching output responses (predictions).
+
+**Training Objective:**
+
+The student model minimizes a combination of two losses:
+
+<StackDiagram
+  title="Distillation Loss Components"
+  layers={[
+    { label: "Hard Loss (CE)", color: colors.blue, description: "Cross-entropy with true labels (ground truth)" },
+    { label: "Soft Loss (KL Div)", color: colors.purple, description: "KL divergence with teacher predictions (dark knowledge)" },
+    { label: "Combined Loss", color: colors.green, description: "ALPHA × CE + (1-ALPHA) × KL × T²" }
+  ]}
+/>
+
+**Loss Formula:**
+
+```
+Loss = ALPHA × CE(student_logits, true_labels)
+     + (1-ALPHA) × KL(student_soft, teacher_soft) × T²
+```
+
+Where:
+- `CE` = Cross-entropy loss (standard classification loss)
+- `KL` = Kullback-Leibler divergence (measures distribution similarity)
+- `ALPHA` = mixing weight (typically 0.5)
+- `T` = temperature (typically 3-10)
+- `T²` = gradient magnitude restoration factor
+
+> **Insight**
+>
+> The KL divergence measures how much information is lost when using the student distribution to approximate the teacher distribution. Lower KL divergence means the student better mimics the teacher's decision boundaries.
+
+**KL Divergence Intuition:**
+
+For two probability distributions P (teacher) and Q (student):
+
+```
+KL(P || Q) = Σ P(x) × log(P(x) / Q(x))
+```
+
+If P and Q are identical:
+```
+KL(P || P) = Σ P(x) × log(1) = 0
+```
+
+The greater the dissimilarity, the higher the KL divergence.
+
+### 1.3. Temperature and Dark Knowledge
+
+**Temperature Scaling:**
+
+Temperature `T` softens probability distributions by dividing logits before softmax:
+
+```python
+# Standard softmax (T=1)
+probs = softmax(logits)
+
+# Softened softmax (T>1)
+probs_soft = softmax(logits / T)
+```
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>Low Temperature (T=1)</strong>
+      <br /><br />
+      Sharp distribution: [0.98, 0.01, 0.01]
+      <br /><br />
+      Teacher is very confident. Limited information about relative similarities.
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>High Temperature (T=5)</strong>
+      <br /><br />
+      Soft distribution: [0.70, 0.20, 0.10]
+      <br /><br />
+      Reveals dark knowledge: class relationships and similarities preserved.
+    </Box>
+  </Column>
+</Row>
+
+**Why T² Factor?**
+
+When dividing logits by T, gradients become weaker. Multiplying by T² restores gradient magnitude:
+
+```python
+# Soft targets with useful dark knowledge
+soft_targets = teacher_logits / T
+
+# KL loss with gradient restoration
+kd_loss = KL(student_logits/T, soft_targets) * (T ** 2)
+```
+
+**Key Hyperparameters:**
+
+<ComparisonTable
+  title="Knowledge Distillation Hyperparameters"
+  headers={["Parameter", "Typical Value", "Purpose"]}
+  rows={[
+    ["Temperature (T)", "3-10", "Softens distributions to expose class relationships"],
+    ["Alpha (α)", "0.3-0.7", "Balance between ground truth and teacher guidance"],
+    ["Student Size", "10-50% of teacher", "Compression ratio depends on deployment constraints"],
+    ["Training Epochs", "Fewer than teacher", "Student learns faster with teacher guidance"]
+  ]}
+/>
+
+## 2. Low-Rank Factorization
+
+### 2.1. SVD for Weight Compression
+
+**In plain English:** Imagine you have a detailed painting with millions of pixels. Low-rank factorization is like identifying the most important patterns (edges, colors, shapes) and recreating the painting using just those patterns. You lose some fine details, but the overall image is nearly identical—and stored much more efficiently.
+
+**In technical terms:** Many weight matrices in neural networks are redundant; their rank can be much lower than their dimensions. Low-rank factorization approximates a weight matrix W as a product of smaller matrices A and B, where W ≈ A × B. This reduces both storage and computation.
+
+**Why it matters:** For a 1000×1000 weight matrix, storing 1 million parameters, a rank-100 approximation needs only 200,000 parameters—a 5x reduction. Inference is also faster because matrix multiplication is cheaper with smaller matrices.
+
+**Singular Value Decomposition (SVD):**
+
+<ProcessFlow
+  title="SVD Low-Rank Factorization"
+  steps={[
+    { label: "Original Matrix", description: "W ∈ ℝ^(1000×1000), 1M parameters" },
+    { label: "Compute SVD", description: "W = U × S × Vᵀ (full decomposition)" },
+    { label: "Truncate", description: "Keep top k=100 singular values/vectors" },
+    { label: "Reconstruct", description: "W ≈ A × B where A=U₁S₁^(1/2), B=S₁^(1/2)V₁ᵀ" },
+    { label: "Replace Layer", description: "Single layer → two consecutive layers (200K params)" }
+  ]}
+/>
+
+**Mathematical Breakdown:**
+
+Step 1: Perform SVD on weight matrix W ∈ ℝ^(1000×1000)
+
+```
+W = U × S × Vᵀ
+```
+
+Where:
+- U ∈ ℝ^(1000×1000) (orthogonal)
+- S ∈ ℝ^(1000×1000) (diagonal, singular values)
+- V ∈ ℝ^(1000×1000) (orthogonal)
+
+Step 2: Truncate to rank k=100
+
+```
+U₁ = U[:, :100]
+S₁ = diag(σ₁, …, σ₁₀₀)
+V₁ = V[:, :100]
+
+W ≈ U₁ × S₁ × V₁ᵀ
+```
+
+Step 3: Reparameterize
+
+```
+A = U₁ × S₁^(1/2) ∈ ℝ^(1000×100)
+B = S₁^(1/2) × V₁ᵀ ∈ ℝ^(100×1000)
+
+W ≈ A × B
+```
+
+Step 4: Replace with two layers
+
+```
+Original: x ↦ Wx  (1000→1000, 1M params)
+
+Factored:
+  Layer 1: x ↦ Bx  (1000→100)
+  Layer 2: h ↦ Ah  (100→1000)
+  Total: 200K params (5x reduction)
+```
+
+> **Insight**
+>
+> Why split the singular values S₁ equally as S₁^(1/2)? This balances the magnitude of transformations across both layers. You could also absorb all of S₁ into A or B, but splitting is numerically more stable.
+
+**Parameter Reduction Example:**
+
+<StackDiagram
+  title="Storage Comparison"
+  layers={[
+    { label: "Original Dense Layer", color: colors.blue, description: "1000×1000 = 1,000,000 parameters" },
+    { label: "SVD Factorization (k=100)", color: colors.purple, description: "1000×100 + 100×1000 = 200,000 parameters" },
+    { label: "Compression Ratio", color: colors.green, description: "5x reduction (80% fewer parameters)" }
+  ]}
+/>
+
+### 2.2. Choosing the Rank
+
+**Energy Threshold Method:**
+
+Pick rank k such that the top-k singular values explain 90-95% of total energy:
+
+```
+Σᵢ₌₁ᵏ σᵢ² / Σᵢ₌₁ʳ σᵢ² ≥ 0.90
+```
+
+Where:
+- σᵢ = singular values (sorted descending)
+- σᵢ² = energy captured by component i
+- r = full rank = min(out, in)
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Conservative (k high)</strong>
+    <br /><br />
+    Preserves 95%+ energy
+    <br />
+    Minimal accuracy loss
+    <br />
+    Lower compression ratio
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Aggressive (k low)</strong>
+    <br /><br />
+    Preserves 80-90% energy
+    <br />
+    Higher compression ratio
+    <br />
+    May require fine-tuning
+  </Box>
+</CardGrid>
+
+**When to Use Low-Rank Factorization:**
+
+<ComparisonTable
+  title="Low-Rank Factorization Suitability"
+  headers={["Layer Type", "Effectiveness", "Reason"]}
+  rows={[
+    ["Word embeddings (NLP)", "High", "Often significant redundancy in 1000+ dimensions"],
+    ["Intermediate FC layers", "Medium", "Over-parameterized networks have low-rank structure"],
+    ["Final classification layer", "Low", "Needs full rank to separate many classes"],
+    ["Convolutional layers", "Medium", "Can work, but structured pruning often better"]
+  ]}
+/>
+
+:::warning Bias Handling
+Only the second layer (A) should have a bias term to match the original layer's behavior:
+
+```
+Original: y = Wx + b
+Factored:  y = A(Bx) + b
+
+If you add bias to both layers:
+y'' = A(Bx + b₁) + b₂ = ABx + (Ab₁ + b₂)
+
+This does not match unless you carefully adjust b₁ and b₂.
+```
+:::
+
+## 3. Quantization
+
+### 3.1. Post-Training Quantization
+
+**In plain English:** Imagine measuring ingredients for a recipe. You could use a precision scale that measures to 0.01 grams, or a simpler scale that measures to 1 gram. For most recipes, the simpler scale is good enough, takes less time, and uses less space in your kitchen. Quantization is the same idea for model weights: use lower precision numbers that are "good enough."
+
+**In technical terms:** Quantization reduces the precision of numbers representing model parameters and activations. Most models train in FP32 (32-bit floating point). Quantization converts them to FP16 (16-bit float), INT8 (8-bit integer), or even lower precision.
+
+**Why it matters:** An INT8 number is 4x smaller than FP32, quartering model size. Computation is faster because operations on smaller data types can be parallelized more efficiently or use specialized hardware instructions. Energy consumption also drops—critical for edge devices.
+
+<StackDiagram
+  title="Precision Levels"
+  layers={[
+    { label: "FP32 (Training)", color: colors.blue, description: "32-bit float: 4 bytes, standard training precision" },
+    { label: "FP16 (Mixed Precision)", color: colors.purple, description: "16-bit float: 2 bytes, ~2x speedup with minimal loss" },
+    { label: "INT8 (Quantization)", color: colors.green, description: "8-bit integer: 1 byte, ~4x speedup, slight accuracy drop" },
+    { label: "INT4/Binary (Extreme)", color: colors.orange, description: "4-bit or 1-bit: massive compression, significant accuracy loss" }
+  ]}
+/>
+
+**Post-Training Quantization Workflow:**
+
+<ProcessFlow
+  title="PTQ Pipeline"
+  steps={[
+    { label: "Train FP32 Model", description: "Standard training to convergence" },
+    { label: "Calibrate", description: "Evaluate on representative dataset to determine quantization ranges" },
+    { label: "Convert Weights", description: "Map FP32 weights to INT8 using learned scale factors" },
+    { label: "Validate", description: "Check accuracy drop (typically under 1% for INT8)" },
+    { label: "Deploy", description: "Smaller, faster model ready for production" }
+  ]}
+/>
+
+**Dynamic vs. Static Quantization:**
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>Dynamic Quantization</strong>
+      <br /><br />
+      Weights: INT8 (stored)
+      <br />
+      Activations: Quantized per-batch at runtime
+      <br /><br />
+      <strong>Use case:</strong> Easier, no calibration needed
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>Static Quantization</strong>
+      <br /><br />
+      Weights: INT8 (stored)
+      <br />
+      Activations: INT8 (fixed ranges from calibration)
+      <br /><br />
+      <strong>Use case:</strong> Maximum speedup, requires calibration dataset
+    </Box>
+  </Column>
+</Row>
+
+**PyTorch Implementation:**
+
+```python
+import torch.quantization as quantization
+
+# Dynamic post-training quantization
+quantized_model = quantization.quantize_dynamic(
+    model_fp32,
+    {torch.nn.Linear},  # Quantize only Linear layers
+    dtype=torch.qint8
+)
+
+# Result: Weights stored as INT8
+# Activations dynamically quantized/dequantized per batch
+```
+
+### 3.2. Precision Trade-offs
+
+**Benefits vs. Trade-offs:**
+
+<ComparisonTable
+  title="Quantization Benefits and Costs"
+  headers={["Aspect", "FP32", "INT8", "Trade-off"]}
+  rows={[
+    ["Model Size", "100%", "25%", "4x reduction"],
+    ["Inference Speed (CPU)", "1x", "2-4x", "Hardware dependent"],
+    ["Inference Speed (GPU)", "1x", "1.5-2x", "Newer GPUs have INT8 tensor cores"],
+    ["Accuracy", "Baseline", "-0.5% to -2%", "Usually acceptable for production"],
+    ["Energy Consumption", "High", "Low", "Critical for mobile/edge devices"]
+  ]}
+/>
+
+> **Insight**
+>
+> Quantization is especially beneficial on CPU and edge devices. On GPU, FP16 is common for training, but INT8 on newer GPUs (Tensor Cores) provides additional inference speedup. For mobile ARM CPUs, INT8 is dramatically faster than float.
+
+:::caution Accuracy Validation
+Always validate quantized model accuracy against your FP32 baseline. For most models, INT8 quantization causes under 1% accuracy drop. If the drop is larger, consider:
+- Using static quantization with better calibration
+- Quantization-aware training (train with quantization in the loop)
+- Keeping sensitive layers in FP32
+:::
+
+**Hardware Considerations:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>CPU Inference</strong>
+    <br />
+    INT8 optimizations widely available (AVX-512, ARM NEON). Expect 2-4x speedup.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>GPU Inference</strong>
+    <br />
+    Newer GPUs (NVIDIA Tensor Cores, A100, H100) have dedicated INT8 units. Speedup varies.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Mobile (ARM)</strong>
+    <br />
+    INT8 dramatically faster than FP32. Essential for on-device inference.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Specialized Accelerators</strong>
+    <br />
+    TPUs, edge TPUs, Qualcomm NPUs optimized for low-precision inference.
+  </Box>
+</CardGrid>
+
+## 4. ONNX and ONNX Runtime
+
+### 4.1. ONNX as Intermediate Representation
+
+**In plain English:** ONNX is like a universal translator for machine learning models. Just as English speakers and Mandarin speakers can communicate through a translator, PyTorch and TensorFlow models can communicate through ONNX. Train in your favorite framework, deploy anywhere.
+
+**In technical terms:** ONNX (Open Neural Network Exchange) provides a framework-agnostic intermediate representation (IR) for neural networks. Models trained in PyTorch, TensorFlow, scikit-learn, etc., can be exported to ONNX format and executed in any ONNX-compatible runtime, regardless of the training framework.
+
+**Why it matters:** ONNX decouples model training from model deployment. Data scientists can experiment in PyTorch, while production systems run ONNX models on optimized C++ runtimes, mobile devices, or specialized hardware—all without rewriting the model.
+
+<ProcessFlow
+  title="ONNX Workflow"
+  steps={[
+    { label: "Train in PyTorch/TF", description: "Use your preferred framework for experimentation" },
+    { label: "Export to ONNX", description: "Convert model to framework-neutral format" },
+    { label: "Optimize Graph", description: "ONNX Runtime applies optimizations (fusion, folding)" },
+    { label: "Deploy Anywhere", description: "Run on CPU, GPU, mobile, edge devices with best kernels" }
+  ]}
+/>
+
+**ONNX Model Components:**
+
+<StackDiagram
+  title="ONNX Model Structure"
+  layers={[
+    { label: "Computation Graph", color: colors.blue, description: "Nodes (ops like Conv, MatMul, ReLU) + Edges (data flow)" },
+    { label: "Initializers", color: colors.purple, description: "Stored constants (weights and biases)" },
+    { label: "Value Info", color: colors.green, description: "Tensor shapes and data types (metadata)" },
+    { label: "Operator Definitions", color: colors.orange, description: "Standardized ops (Conv, BatchNorm, Add, etc.)" }
+  ]}
+/>
+
+**Operator Standardization:**
+
+ONNX defines a standard set of operations. Framework exporters map native ops to these standards:
+
+```
+PyTorch Conv2d → ONNX Conv operator
+TensorFlow BatchNormalization → ONNX BatchNormalization operator
+```
+
+If a framework has an unusual op not in ONNX:
+- Replace with sequence of known ops
+- Insert custom op as placeholder
+
+### 4.2. Execution Providers
+
+**In plain English:** Execution providers are like specialized mechanics for different car brands. One mechanic (EP) knows how to optimize Toyotas (CPUs), another knows Ferraris (NVIDIA GPUs), another knows Teslas (edge accelerators). ONNX Runtime assigns each part of your model to the best mechanic for the job.
+
+**In technical terms:** An execution provider (EP) is a plugin that knows how to run ONNX operators on a specific device or backend. EPs provide kernel implementations, memory management, and capability interfaces to determine which nodes they can handle.
+
+**Why it matters:** ONNX Runtime can mix execution providers—running heavy convolutions on GPU while falling back to CPU for unsupported ops. This heterogeneous execution maximizes performance across diverse hardware.
+
+<TreeDiagram
+  title="ONNX Runtime Architecture"
+  root="ONNX Runtime"
+  branches={[
+    {
+      label: "Graph Optimizations",
+      children: [
+        { label: "Constant Folding" },
+        { label: "Operator Fusion" },
+        { label: "Dead Node Removal" }
+      ]
+    },
+    {
+      label: "Execution Providers",
+      children: [
+        { label: "CPUExecutionProvider" },
+        { label: "CUDAExecutionProvider" },
+        { label: "TensorRTExecutionProvider" }
+      ]
+    },
+    {
+      label: "Memory Management",
+      children: [
+        { label: "Allocators" },
+        { label: "Buffer Reuse" }
+      ]
+    }
+  ]}
+/>
+
+**Key Execution Providers:**
+
+<ComparisonTable
+  title="Common Execution Providers"
+  headers={["Provider", "Hardware", "Use Case"]}
+  rows={[
+    ["CPUExecutionProvider", "CPU (fallback)", "Universal fallback, optimized CPU libraries"],
+    ["CUDAExecutionProvider", "NVIDIA GPU", "GPU execution via CUDA kernels"],
+    ["TensorRTExecutionProvider", "NVIDIA GPU", "Optimized inference with TensorRT engine (FP16, INT8)"],
+    ["OpenVINOExecutionProvider", "Intel CPUs/VPUs", "Optimized for Intel hardware"],
+    ["CoreMLExecutionProvider", "Apple devices", "iOS/macOS inference on Neural Engine"]
+  ]}
+/>
+
+**EP Assignment Strategy:**
+
+ONNX Runtime assigns nodes to EPs in a greedy, prioritized fashion:
+
+1. Rank EPs by priority (user-specified or default)
+2. Assign largest contiguous subgraphs to highest-priority EP
+3. Fall back to lower-priority EPs for unsupported ops
+
+```python
+import onnxruntime as ort
+
+# Specify execution providers in priority order
+providers = [
+    'TensorRTExecutionProvider',  # Try TensorRT first
+    'CUDAExecutionProvider',       # Fall back to CUDA
+    'CPUExecutionProvider'          # Final fallback
+]
+
+session = ort.InferenceSession('model.onnx', providers=providers)
+```
+
+### 4.3. Graph Optimizations
+
+**Optimization Categories:**
+
+<StackDiagram
+  title="ONNX Runtime Optimization Levels"
+  layers={[
+    { label: "Basic Optimizations", color: colors.blue, description: "Constant folding, dead node elimination, identity removal" },
+    { label: "Extended Optimizations", color: colors.purple, description: "Operator fusion (Conv+BN), shape simplifications" },
+    { label: "Layout Optimizations", color: colors.green, description: "Data format transformations for GPU efficiency" },
+    { label: "Provider-Specific", color: colors.orange, description: "TensorRT graph compilation, kernel selection" }
+  ]}
+/>
+
+**Common Optimizations:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Constant Folding</strong>
+    <br />
+    Pre-compute values that never change. If a layer multiplies by a fixed tensor, do it once ahead of time.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Operator Fusion</strong>
+    <br />
+    Merge operators into single optimized kernels. Conv + BatchNorm + ReLU → single fused op.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Dead Node Elimination</strong>
+    <br />
+    Remove unused parts of the graph (e.g., dropout layers in inference mode).
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Layout Transformation</strong>
+    <br />
+    Reorder data (NCHW ↔ NHWC) for hardware efficiency on GPUs.
+  </Box>
+</CardGrid>
+
+**Trade-offs and Risks:**
+
+:::warning ONNX Limitations
+While ONNX is powerful, there are caveats:
+
+1. **Op Coverage:** Not all framework ops map cleanly to ONNX. Converters may use fallback patterns that are less efficient.
+2. **Partitioning:** Greedy EP assignment is heuristic. May cause suboptimal splits with extra data copying.
+3. **Startup Time:** Graph optimization and TensorRT initialization incur non-trivial latency at first load.
+4. **Numeric Drift:** FP16/INT8 precision may cause small differences from original model. Calibration is critical.
+5. **Custom Ops:** Models with custom operations require registering custom ops or EP support—adding engineering burden.
+:::
+
+**Practical Example:**
+
+```python
+import torch
+import onnx
+import onnxruntime as ort
+
+# 1. Export PyTorch model to ONNX
+dummy_input = torch.randn(1, 3, 256, 256)
+torch.onnx.export(
+    model,
+    dummy_input,
+    "model.onnx",
+    input_names=["input"],
+    output_names=["output"],
+    dynamic_axes={"input": {0: "batch"}}
+)
+
+# 2. Optimize and validate ONNX model
+onnx_model = onnx.load("model.onnx")
+onnx.checker.check_model(onnx_model)
+onnx_model = onnx.shape_inference.infer_shapes(onnx_model)
+onnx.save(onnx_model, "model_optimized.onnx")
+
+# 3. Run inference with ONNX Runtime
+session = ort.InferenceSession(
+    "model_optimized.onnx",
+    providers=['CUDAExecutionProvider', 'CPUExecutionProvider']
+)
+
+input_name = session.get_inputs()[0].name
+outputs = session.run(None, {input_name: input_array})
+```
+
+> **Insight**
+>
+> The ONNX export flow happens automatically once you load a model into ONNX Runtime with chosen EPs. You do not manually partition graphs or bind kernels unless doing advanced customization. The runtime handles optimization transparently.
+
+## Key Takeaways
+
+<CardGrid columns={1}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Knowledge distillation creates compact models with teacher-level performance.</strong> The student learns not just correct answers but the nuances of class relationships through soft targets and temperature scaling.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Low-rank factorization exploits redundancy in weight matrices.</strong> SVD-based compression can reduce parameters 5-10x for over-parameterized layers, with minimal accuracy loss after fine-tuning.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Quantization is the final optimization step for deployment.</strong> INT8 quantization typically provides 4x size reduction and 2-4x speedup with less than 1% accuracy drop—critical for edge and mobile deployment.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>ONNX provides framework-agnostic portability and optimization.</strong> Export from any framework, optimize with ONNX Runtime, and deploy to heterogeneous hardware with specialized execution providers.
+  </Box>
+</CardGrid>
+
+:::info Compression Pipeline Summary
+1. Train baseline model (often large)
+2. Apply compression (pruning, distillation, SVD, quantization)
+3. Fine-tune to recover accuracy
+4. Measure accuracy vs. baseline
+5. Export to ONNX for production deployment
+:::

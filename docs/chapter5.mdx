@@ -1,0 +1,553 @@
+---
+sidebar_position: 5
+title: "Data and Pipeline Engineering - Part A"
+description: "Master data sources, formats, ETL pipelines, and hands-on implementation of hybrid ETL/ELT workflows"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# Data and Pipeline Engineering - Part A
+
+> *"In enterprise MLOps, models are commodities, but data pipelines are assets. The data and the pipelines that process it are the durable, defensible assets that drive business value."*
+
+## Table of Contents
+
+1. [Introduction: Understanding the Data Landscape](#introduction-understanding-the-data-landscape)
+2. [Data Sources](#data-sources)
+   - 2.1. [User Input Data](#user-input-data)
+   - 2.2. [System-Generated Data](#system-generated-data-logs)
+   - 2.3. [Internal Databases](#internal-databases)
+   - 2.4. [Third-Party Data](#third-party-data)
+3. [Data Formats](#data-formats)
+   - 3.1. [Text vs Binary](#text-vs-binary)
+   - 3.2. [Row-Major vs Column-Major](#row-major-vs-column-major)
+4. [Data Engineering Foundations: ETL](#data-engineering-foundations-etl)
+   - 4.1. [Extract, Transform, Load](#etl-in-ml-workflows)
+   - 4.2. [ETL vs ELT](#etl-vs-elt)
+5. [Hands-On: Building Data Pipelines](#hands-on-building-data-pipelines)
+   - 5.1. [Data Generation](#data-generation)
+   - 5.2. [Extraction and Validation](#extraction-phase-and-validation)
+   - 5.3. [Transform and Load](#transform-phase-and-load)
+6. [Conclusion](#conclusion)
+
+## Introduction: Understanding the Data Landscape
+
+In machine learning operations (MLOps), success hinges not just on models but on the data pipelines that feed those models.
+
+**In plain English:** Think of data pipelines as the supply chain for your ML system. Just like a factory needs reliable suppliers for quality raw materials, your model needs reliable pipelines for clean, timely data.
+
+**In technical terms:** Production machine learning is fundamentally different from notebook experimentation. The cleverest model architecture is worthless if it is fed unreliable data or if its predictions cannot be reproduced.
+
+**Why it matters:** In enterprise MLOps settings, the raw material is data, and the choices we make for data have profound downstream consequences on performance, scalability, and reliability of our entire ML system.
+
+<DiagramContainer title="ML System Data Foundation">
+  <StackDiagram
+    layers={[
+      { label: 'ML Models', size: 1, color: colors.blue },
+      { label: 'Feature Engineering', size: 2, color: colors.green },
+      { label: 'Data Processing (ETL)', size: 3, color: colors.orange },
+      { label: 'Data Storage', size: 2, color: colors.purple },
+      { label: 'Data Sources', size: 3, color: colors.pink }
+    ]}
+  />
+</DiagramContainer>
+
+> **Insight**
+>
+> Data in a production environment is not a clean, static CSV file. It is a dynamic, messy, and continuous flow of signals from a multitude of sources, each with its own characteristics and requirements.
+
+## Data Sources
+
+Production ML systems interact with data from several origins. Understanding these sources is critical for designing robust pipelines.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>User Input Data</h4>
+    <p>Data explicitly provided by users: text in search bars, uploaded images, form submissions</p>
+    <p><strong>Challenge:</strong> Notoriously unreliable - requires heavy-duty validation and robust error handling</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>System-Generated Data (Logs)</h4>
+    <p>Applications and infrastructure generate massive volumes of logs</p>
+    <p><strong>Examples:</strong> Events, system states, service calls, model predictions</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Internal Databases</h4>
+    <p>Most enterprise value derives from internal databases</p>
+    <p><strong>Examples:</strong> Inventory, CRM, user accounts, financial transactions</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Third-Party Data</h4>
+    <p>Data acquired from external vendors</p>
+    <p><strong>Examples:</strong> Demographics, social media, purchasing habits</p>
+    <p><strong>Constraint:</strong> Privacy regulations limit availability</p>
+  </Box>
+</CardGrid>
+
+### User Input Data
+
+**In plain English:** If it is possible for a user to input unformatted and raw data, they will. Users are lazy and creative in unexpected ways.
+
+**In technical terms:** This data source requires heavy-duty validation and robust error handling. Implement input sanitization, type checking, and graceful degradation for malformed inputs.
+
+**Why it matters:** Unvalidated user input can crash pipelines, introduce security vulnerabilities, or poison model training data with nonsensical values.
+
+### System-Generated Data (Logs)
+
+**In plain English:** Logs are like a detailed diary of everything your system does. While often noisy, they are invaluable for understanding what actually happened.
+
+**In technical terms:** Applications and infrastructure generate logs that record events, system states (memory usage), service calls, and model predictions. While often noisy, logs provide visibility into ML systems.
+
+**Why it matters:** For many use cases, logs can be processed in batches (daily/weekly), but real-time monitoring and alerting require faster processing.
+
+### Internal Databases
+
+**In plain English:** Your company's databases are gold mines. The inventory system knows what products are available, the CRM knows customer history - combining these creates powerful features.
+
+**In technical terms:** Databases managing inventory, customer relationships, user accounts, and financial transactions are typically the most valuable sources for feature engineering. This data is highly structured and follows relational models.
+
+**Why it matters:** A recommendation model might process a user's query, but it must check an internal inventory database to ensure recommended products are actually in stock before displaying them.
+
+### Third-Party Data
+
+**In plain English:** Buying data from vendors can jumpstart projects, but you cannot rely on it forever. Privacy laws are making it harder to obtain and use.
+
+**In technical terms:** External vendors provide demographic information, social media activity, and purchasing habits. While powerful for bootstrapping models, availability is increasingly constrained by privacy regulations.
+
+**Why it matters:** Third-party data can be a competitive advantage, but over-reliance creates vendor lock-in and regulatory risk.
+
+## Data Formats
+
+The format you choose for storage is a critical architectural decision that directly impacts storage costs, access speed, and ease of use.
+
+### Text vs Binary
+
+<ComparisonTable
+  headers={['Aspect', 'Text Formats (JSON, CSV)', 'Binary Formats (Parquet)']}
+  rows={[
+    ['Readability', 'Human-readable, debuggable', 'Machine-only, requires schema'],
+    ['Storage Efficiency', 'Verbose, large file sizes', 'Compact, efficient compression'],
+    ['Example', '1000000 = 7 bytes', '1000000 = 4 bytes (32-bit int)'],
+    ['Use Case', 'Debugging, configuration, interchange', 'Large-scale analytics, production storage'],
+    ['Size Example', '14 MB CSV', '6 MB Parquet (same data)']
+  ]}
+/>
+
+**In plain English:** Text formats are like writing notes in plain English - anyone can read them, but they take up more space. Binary formats are like shorthand - compact and efficient, but you need a decoder to understand them.
+
+**In technical terms:** Text files are verbose and consume significantly more storage space. Binary formats are far more compact and efficient to process, but require knowing the exact schema and layout to interpret bytes.
+
+**Why it matters:** For large-scale analytical workloads, binary formats like Parquet are the industry standard, offering dramatic space savings and faster query performance.
+
+### Row-Major vs Column-Major
+
+This distinction is perhaps the most critical for an ML engineer to grasp, as it directly relates to how we typically access data for training and analysis.
+
+<DiagramContainer title="Data Layout Comparison">
+  <ComparisonTable
+    headers={['Layout Type', 'Storage Pattern', 'Optimized For', 'Example Format']}
+    rows={[
+      ['Row-Major', 'Consecutive row elements together', 'Write-heavy, fetch entire records', 'CSV'],
+      ['Column-Major', 'Consecutive column elements together', 'Analytical queries, feature extraction', 'Parquet']
+    ]}
+  />
+</DiagramContainer>
+
+**In plain English:** Row-major is like reading a book line by line. Column-major is like reading all first words of every line, then all second words. For ML (where we often need all values of one feature), column-major is much faster.
+
+**In technical terms:** In row-major format, consecutive elements of a row are stored next to each other. In column-major format, consecutive elements of a column are stored contiguously in memory.
+
+**Why it matters:** When calculating the mean of a single feature across millions of samples, column-major format allows reading that column as a single contiguous block (extremely efficient). Row-major requires jumping around in memory.
+
+:::tip Pandas Performance
+A Pandas DataFrame is column-major. Iterating by column is ~20x faster than iterating by row. This is not a flaw - it is a direct consequence of the underlying data model optimized for analytical operations.
+:::
+
+> **Insight**
+>
+> The performance implications are not subtle. On a DataFrame of 32M+ rows, iterating by column takes ~2 microseconds while iterating by row takes ~38 microseconds - a 20x difference.
+
+## Data Engineering Foundations: ETL
+
+Before building pipelines, we need a solid grasp of data engineering fundamentals in an ML context. ETL describes the pipeline of getting data from sources, processing it into usable form, and loading it into storage.
+
+### ETL in ML Workflows
+
+<ProcessFlow
+  steps={[
+    { label: 'Extract', description: 'Pull data from various sources' },
+    { label: 'Transform', description: 'Clean, merge, feature engineer' },
+    { label: 'Load', description: 'Write to target destination' }
+  ]}
+/>
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Extract</h4>
+    <p>Pull data from various sources: databases, APIs, files, logs</p>
+    <p><strong>Best Practice:</strong> Validate and reject malformed data early</p>
+    <p><strong>Example:</strong> Filter out records with missing required fields and log rejections</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Transform</h4>
+    <p>Core processing: clean, merge, standardize, feature engineer</p>
+    <p><strong>Activities:</strong> Handle missing values, deduplicate, aggregate, derive features</p>
+    <p><strong>Example:</strong> Transform timestamps into day-of-week features</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Load</h4>
+    <p>Write transformed data to target destination</p>
+    <p><strong>Targets:</strong> Data warehouse, database, cloud storage, feature store</p>
+    <p><strong>Considerations:</strong> Batch schedule or streaming, output format</p>
+  </Box>
+</CardGrid>
+
+**In plain English:** ETL is like processing ingredients for a meal. Extract is shopping for ingredients. Transform is chopping, marinating, and preparing. Load is arranging everything on serving plates ready for cooking (model training).
+
+**In technical terms:** ETL is the foundational pattern for data preparation in ML. Extraction involves reading and validating source data. Transformation includes cleaning, joining, feature engineering. Loading means persisting results for downstream consumption.
+
+**Why it matters:** Without proper ETL, you risk training models on dirty data, missing critical features, or being unable to reproduce results due to inconsistent transformations.
+
+### ETL vs ELT
+
+You might encounter the term ELT (Extract, Load, Transform) - a variant where raw data is first loaded into storage before transformation.
+
+<ComparisonTable
+  headers={['Aspect', 'ETL', 'ELT']}
+  rows={[
+    ['Transformation Timing', 'Before loading', 'After loading'],
+    ['Storage', 'Processed data only', 'Raw data lake + transformed'],
+    ['Flexibility', 'Fixed transformations', 'Redefine transformations later'],
+    ['Ingestion Speed', 'Slower (processing upfront)', 'Faster (dump everything)'],
+    ['Risk', 'Data loss if transform fails', 'Data swamp if not managed']
+  ]}
+/>
+
+**In plain English:** ETL is like preparing food before storing it (cleaned, chopped vegetables in containers). ELT is like storing everything raw in the pantry and preparing it when you cook. ELT is flexible but can create clutter.
+
+**In technical terms:** ELT has become popular with rise of inexpensive storage and scalable compute. Organizations dump raw data into data lakes immediately, and transform later when needed.
+
+**Why it matters:** The key is balancing fast data acquisition (ELT style) with upfront processing (ETL style) to keep data usable. A common ML pattern: light cleaning upon extraction, load into lake, then heavier feature engineering in later pipeline stages.
+
+## Hands-On: Building Data Pipelines
+
+In this section, we will simulate a basic machine learning data pipeline using Pandas, NumPy, and Scikit-learn.
+
+<ProcessFlow
+  steps={[
+    { label: 'Generate Data', description: 'Simulate multiple sources' },
+    { label: 'Extract', description: 'Pull from CSV, JSON, SQLite' },
+    { label: 'Validate', description: 'Clean and standardize' },
+    { label: 'Transform', description: 'Feature engineering' },
+    { label: 'Load', description: 'Save in multiple formats' }
+  ]}
+/>
+
+### Objectives
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Simulate Reality</h4>
+    <p>Generate synthetic data mimicking multiple data sources</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Explore Formats</h4>
+    <p>Work with CSV, JSON, Parquet, and SQLite</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Hybrid Pipeline</h4>
+    <p>Implement ETL/ELT approach demonstrating practical workflows</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Leakage Safety</h4>
+    <p>Ensure proper temporal splits and prevent data leakage</p>
+  </Box>
+</CardGrid>
+
+### Data Generation
+
+We generate synthetic data to simulate real-world data collection:
+
+```python
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import sqlite3
+
+# Set random seed
+np.random.seed(42)
+
+# Generate customers
+customers = []
+for i in range(400):
+    customer_id = 1001 + i
+    country = np.random.choice(['USA', 'UK', 'Germany', 'France'])
+    city = np.random.choice(['New York', 'London', 'Berlin', 'Paris'])
+    signup_date = datetime(2020, 1, 1) + timedelta(days=np.random.randint(0, 365))
+
+    customers.append({
+        'customer_id': customer_id,
+        'country': country,
+        'city': city,
+        'signup_date': signup_date.strftime('%Y-%m-%d')
+    })
+
+# Save to SQLite
+conn = sqlite3.connect('customers.db')
+df_customers = pd.DataFrame(customers)
+df_customers.to_sql('customers', conn, if_exists='replace', index=False)
+conn.close()
+
+# Generate sales (with data quality issues)
+sales = []
+for customer in customers:
+    n_purchases = np.random.poisson(10)
+    for _ in range(n_purchases):
+        sale_id = len(sales) + 1
+        timestamp = datetime(2020, 1, 1) + timedelta(days=np.random.randint(0, 365))
+        amount = np.random.lognormal(3, 1)
+
+        # Inject 2% missing amounts and 1% negative amounts
+        if np.random.random() < 0.02:
+            amount = np.nan
+        elif np.random.random() < 0.01:
+            amount = -amount
+
+        sales.append({
+            'sale_id': sale_id,
+            'customer_id': customer['customer_id'],
+            'amount': amount,
+            'ts': timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+# Save to CSV
+pd.DataFrame(sales).to_csv('sales.csv', index=False)
+
+# Generate events
+events = []
+for customer in customers:
+    n_events = np.random.poisson(5)
+    for _ in range(n_events):
+        event_id = len(events) + 1
+        timestamp = datetime(2020, 1, 1) + timedelta(days=np.random.randint(0, 365))
+        event_type = np.random.choice(['login', 'view_product', 'add_to_cart', 'purchase'])
+
+        events.append({
+            'event_id': event_id,
+            'customer_id': customer['customer_id'],
+            'event_type': event_type,
+            'ts': timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        })
+
+# Save to JSON
+import json
+with open('events.json', 'w') as f:
+    json.dump(events, f, indent=2)
+```
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Customers (SQLite)</h4>
+    <p>Represents internal database</p>
+    <p>400 customers with demographics</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Sales (CSV)</h4>
+    <p>Represents financial system</p>
+    <p>Transactional data with quality issues</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Events (JSON)</h4>
+    <p>Represents user tracking</p>
+    <p>Behavioral event stream</p>
+  </Box>
+</CardGrid>
+
+### Extraction Phase and Validation
+
+Now we extract data from heterogeneous sources and validate it:
+
+```python
+# Extract from CSV
+def extract_sales_csv(path='sales.csv'):
+    df = pd.read_csv(path)
+    print(f"Extracted {len(df)} sales records")
+    return df
+
+# Extract from JSON
+def extract_events_json(path='events.json'):
+    with open(path, 'r') as f:
+        data = json.load(f)
+    df = pd.DataFrame(data)
+    print(f"Extracted {len(df)} event records")
+    return df
+
+# Extract from SQLite
+def extract_customers_sqlite(db_path='customers.db'):
+    conn = sqlite3.connect(db_path)
+    df = pd.read_sql_query("SELECT * FROM customers", conn)
+    conn.close()
+    print(f"Extracted {len(df)} customer records")
+    return df
+
+# Validate sales data
+def validate_sales(df):
+    # Check required columns
+    required = ['sale_id', 'customer_id', 'amount', 'ts']
+    assert all(col in df.columns for col in required)
+
+    # Type casting
+    df['sale_id'] = df['sale_id'].astype(int)
+    df['customer_id'] = df['customer_id'].astype(int)
+    df['amount'] = pd.to_numeric(df['amount'], errors='coerce')
+    df['ts'] = pd.to_datetime(df['ts'])
+
+    # Drop invalids
+    df = df.dropna(subset=['sale_id', 'customer_id', 'ts'])
+
+    # Sanitize amounts
+    df.loc[df['amount'] <= 0, 'amount'] = np.nan
+    df.loc[df['amount'] > df['amount'].quantile(0.95) * 5, 'amount'] = np.nan
+
+    # Fill missing amounts
+    df['amount'] = df.groupby('customer_id')['amount'].transform(
+        lambda x: x.fillna(x.median())
+    )
+    df['amount'] = df['amount'].fillna(df['amount'].median())
+
+    # Deduplicate
+    df = df.sort_values('ts').drop_duplicates('sale_id', keep='last')
+
+    print(f"Validated {len(df)} sales records")
+    return df
+```
+
+<DiagramContainer title="Validation Pipeline">
+  <ProcessFlow
+    steps={[
+      { label: 'Column Check', description: 'Verify required fields exist' },
+      { label: 'Type Casting', description: 'Convert to proper data types' },
+      { label: 'Drop Invalids', description: 'Remove rows with missing keys' },
+      { label: 'Sanitize Values', description: 'Handle outliers and negatives' },
+      { label: 'Imputation', description: 'Fill missing values' },
+      { label: 'Deduplication', description: 'Remove duplicate records' }
+    ]}
+  />
+</DiagramContainer>
+
+:::warning Data Quality
+Validation is critical. In our synthetic data, we injected 2% missing amounts and 1% negative amounts. Real-world data often has far worse quality issues. Robust validation prevents these issues from poisoning model training.
+:::
+
+### Transform Phase and Load
+
+Now we perform feature engineering and save the results:
+
+```python
+def transform_features(sales_v, customers_v, cutoff, obs_days=200, label_days=60):
+    # Compute time windows
+    obs_start = cutoff - timedelta(days=obs_days)
+    label_end = cutoff + timedelta(days=label_days)
+
+    # Split data
+    sales_obs = sales_v[(sales_v['ts'] >= obs_start) & (sales_v['ts'] < cutoff)]
+    sales_label = sales_v[(sales_v['ts'] >= cutoff) & (sales_v['ts'] < label_end)]
+
+    # RFM features
+    recency = sales_obs.groupby('customer_id')['ts'].max()
+    recency_days = (cutoff - recency).dt.days
+
+    # Aggregate features
+    agg_features = sales_obs.groupby('customer_id').agg({
+        'sale_id': 'count',
+        'amount': ['sum', 'mean', 'max']
+    })
+    agg_features.columns = ['freq', 'monetary', 'avg_amount', 'max_amount']
+
+    # Join with customer master
+    features = customers_v.merge(agg_features, on='customer_id', how='left')
+    features = features.merge(recency_days.rename('recency_days'), on='customer_id', how='left')
+
+    # Fill missing
+    features['freq'] = features['freq'].fillna(0).astype(int)
+
+    # Compute tenure
+    features['signup_date'] = pd.to_datetime(features['signup_date'])
+    features['tenure_days'] = (cutoff.date() - features['signup_date'].dt.date).dt.days
+    features['tenure_days'] = features['tenure_days'].clip(lower=0)
+
+    # Create label (churn = no purchases in label window)
+    future_purchases = sales_label.groupby('customer_id').size()
+    features['label_churn'] = (future_purchases.reindex(features['customer_id'], fill_value=0) == 0).astype(int).values
+
+    return features
+
+# Execute pipeline
+cutoff = pd.Timestamp('2020-09-01')
+features = transform_features(sales_validated, customers_validated, cutoff)
+
+# Load - save in multiple formats
+features.to_csv('output/features.csv', index=False)
+features.to_parquet('output/features.parquet', index=False)
+features.to_json('output/features.json', orient='records', indent=2)
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Feature Engineering</h4>
+    <ul>
+      <li>RFM metrics (Recency, Frequency, Monetary)</li>
+      <li>Aggregate statistics</li>
+      <li>Temporal features (tenure)</li>
+      <li>Derived labels (churn)</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Leakage Prevention</h4>
+    <ul>
+      <li>Strict temporal split at cutoff date</li>
+      <li>Features from observation window only</li>
+      <li>Labels from future label window</li>
+      <li>No data mixing across windows</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Note on leakage safety: All features are computed from sales_obs (strictly before cutoff), and the label uses sales_label (at or after cutoff). This clean separation prevents target leakage.
+
+## Conclusion
+
+In this chapter, we walked through the critical role of data pipelines in machine learning operations.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Data is Foundational</h4>
+    <p>In enterprise MLOps, models are commodities, but data pipelines are assets</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Format Matters</h4>
+    <p>Text vs binary, row-major vs column-major - architectural choices ripple downstream into ML efficiency</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>ETL is Core</h4>
+    <p>Extract, Transform, Load - and understanding when to use ELT - forms the backbone of data workflows</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Validation is Critical</h4>
+    <p>Data quality issues are more frequent causes of failure than algorithm issues</p>
+  </Box>
+</CardGrid>
+
+### What's Next
+
+Future chapters will explore:
+
+- Advanced data concepts (sampling, class imbalance, data leakage)
+- Feature stores at scale
+- Orchestration and scheduling
+- CI/CD workflows tailored for ML systems
+- Monitoring and observation in production

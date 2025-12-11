@@ -1,0 +1,688 @@
+---
+sidebar_position: 11
+title: "Model Deployment—Part A"
+description: "Learn model deployment fundamentals: serialization formats, containerization with Docker, serving APIs with FastAPI and gRPC, and batch vs. real-time inference."
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "The journey of a machine learning model from a Jupyter Notebook to a production system is one of the most challenging aspects of the MLOps lifecycle."
+
+## Table of Contents
+
+1. [Model Packaging and Serialization](#1-model-packaging-and-serialization)
+   1. [Common Serialization Formats](#11-common-serialization-formats)
+   2. [Choosing the Right Format](#12-choosing-the-right-format)
+2. [Containerization with Docker](#2-containerization-with-docker)
+   1. [Why Containers Matter](#21-why-containers-matter)
+   2. [Docker Best Practices](#22-docker-best-practices)
+3. [Serving Models via APIs](#3-serving-models-via-apis)
+   1. [FastAPI for ML Serving](#31-fastapi-for-ml-serving)
+   2. [REST vs. gRPC](#32-rest-vs-grpc)
+4. [Batch vs. Real-Time Inference](#4-batch-vs-real-time-inference)
+5. [Hands-On: gRPC Model Serving](#5-hands-on-grpc-model-serving)
+
+## 1. Model Packaging and Serialization
+
+### 1.1. Common Serialization Formats
+
+**In plain English:** Model serialization is like packing a suitcase for a trip. You need to take everything you need (model architecture, weights, configuration) and pack it in a way that you can unpack it later in a different place (production environment). The format you choose determines how portable and compatible your "suitcase" is.
+
+**In technical terms:** Model serialization saves or exports a trained model in a format that can be loaded and executed in another environment. The format affects portability, compatibility with different frameworks and languages, and ease of deployment.
+
+**Why it matters:** Without proper serialization, your model is trapped in the training environment. Serialization enables the critical transition from experimentation (Jupyter notebooks) to production (web services, mobile apps, edge devices).
+
+<ComparisonTable
+  title="Model Serialization Formats"
+  headers={["Format", "Framework", "Portability", "Use Case"]}
+  rows={[
+    ["Pickle (.pkl)", "Python (any)", "Python-only", "Quick prototypes, internal tools"],
+    ["Joblib (.joblib)", "scikit-learn", "Python-only", "scikit-learn models with large arrays"],
+    ["HDF5 (.h5)", "Keras/TensorFlow", "Cross-platform", "TensorFlow/Keras models, TF Serving"],
+    ["ONNX (.onnx)", "Framework-agnostic", "Universal", "Production deployment, multi-language"],
+    ["TorchScript (.pt)", "PyTorch", "Python + C++", "PyTorch production, mobile deployment"],
+    ["SavedModel", "TensorFlow", "TensorFlow ecosystem", "TF Serving, TFLite conversion"]
+  ]}
+/>
+
+**Detailed Format Breakdown:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Pickle / Joblib</strong>
+    <br /><br />
+    <strong>Pros:</strong>
+    <br />
+    • One-line save/load
+    <br />
+    • Preserves Python objects directly
+    <br />
+    • Joblib optimized for NumPy arrays
+    <br /><br />
+    <strong>Cons:</strong>
+    <br />
+    • Python-specific (not portable)
+    <br />
+    • Security risk (can execute code on load)
+    <br />
+    • Version compatibility issues
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>HDF5 / Keras</strong>
+    <br /><br />
+    <strong>Pros:</strong>
+    <br />
+    • Stores architecture + weights together
+    <br />
+    • Cross-platform (not Python-specific)
+    <br />
+    • TensorFlow Serving support
+    <br /><br />
+    <strong>Cons:</strong>
+    <br />
+    • Tied to TensorFlow ecosystem
+    <br />
+    • Custom layers require special handling
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>ONNX</strong>
+    <br /><br />
+    <strong>Pros:</strong>
+    <br />
+    • Framework-agnostic (PyTorch, TF, scikit-learn)
+    <br />
+    • Run in C++, Java, JavaScript, mobile
+    <br />
+    • ONNX Runtime optimizations
+    <br /><br />
+    <strong>Cons:</strong>
+    <br />
+    • Conversion complexity for custom ops
+    <br />
+    • Not all ops supported by all runtimes
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>TorchScript</strong>
+    <br /><br />
+    <strong>Pros:</strong>
+    <br />
+    • PyTorch native production format
+    <br />
+    • Runs without Python (C++ runtime)
+    <br />
+    • Mobile deployment (iOS, Android)
+    <br /><br />
+    <strong>Cons:</strong>
+    <br />
+    • PyTorch-specific
+    <br />
+    • Tracing/scripting required
+    <br />
+    • Some dynamic operations not supported
+  </Box>
+</CardGrid>
+
+### 1.2. Choosing the Right Format
+
+<ProcessFlow
+  title="Serialization Format Decision Tree"
+  steps={[
+    { label: "Development Stage?", description: "Quick prototype → Pickle/Joblib" },
+    { label: "Production Deployment?", description: "Need portability → ONNX or framework-specific" },
+    { label: "Multi-Language Support?", description: "Non-Python deployment → ONNX" },
+    { label: "Framework Optimization?", description: "PyTorch → TorchScript, TensorFlow → SavedModel" },
+    { label: "Long-Term Production?", description: "Neutral format (ONNX) or optimized format (TensorRT)" }
+  ]}
+/>
+
+:::warning Security Consideration
+Never load pickled models from untrusted sources. Pickle can execute arbitrary code during deserialization. For production systems accepting external models, use safer formats like ONNX or require model validation pipelines.
+:::
+
+**Practical Guidelines:**
+
+<StackDiagram
+  title="Format Selection Strategy"
+  layers={[
+    { label: "Internal Tools (Python only)", color: colors.blue, description: "Pickle/Joblib: fast, simple, sufficient" },
+    { label: "Python Production Services", color: colors.purple, description: "Pickle/Joblib acceptable if environment controlled" },
+    { label: "Multi-Team Deployment", color: colors.green, description: "ONNX: data science trains, engineering deploys in Java/C++" },
+    { label: "Mobile/Edge Deployment", color: colors.orange, description: "TorchScript (PyTorch) or TFLite (TensorFlow)" }
+  ]}
+/>
+
+## 2. Containerization with Docker
+
+### 2.1. Why Containers Matter
+
+**In plain English:** Remember the classic "it works on my machine" problem? You spend days perfecting your model on your laptop, then it breaks immediately when deployed to a server because of different Python versions, missing libraries, or OS differences. Containers solve this by packaging your entire environment—code, model, libraries, even the OS—into a single unit that runs identically everywhere.
+
+**In technical terms:** Containerization (using Docker) packages the model, inference code, and all dependencies into a self-contained image. This image can run on any machine that supports Docker, ensuring environment consistency across development, staging, and production.
+
+**Why it matters:** Containers are the foundation of modern MLOps. They enable reproducible deployments, simplify scaling, and provide a standard interface for orchestration systems like Kubernetes. Without containers, managing dependencies across environments becomes a nightmare.
+
+<ProcessFlow
+  title="Container Benefits"
+  steps={[
+    { label: "Environment Isolation", description: "Each container has its own dependencies, no conflicts" },
+    { label: "Reproducibility", description: "Same image runs identically on laptop, cloud, edge" },
+    { label: "Portability", description: "Cloud-agnostic: AWS, GCP, Azure, on-premise" },
+    { label: "Scalability", description: "Orchestration (Kubernetes) manages scaling automatically" },
+    { label: "Version Control", description: "Image tags track versions, enable rollbacks" }
+  ]}
+/>
+
+**Docker Workflow:**
+
+<StackDiagram
+  title="Containerization Pipeline"
+  layers={[
+    { label: "1. Write Dockerfile", color: colors.blue, description: "Define base image, dependencies, copy code/model" },
+    { label: "2. Build Image", color: colors.purple, description: "docker build -t model-server:v1.0" },
+    { label: "3. Test Locally", color: colors.green, description: "docker run -p 8000:8000 model-server:v1.0" },
+    { label: "4. Push to Registry", color: colors.orange, description: "docker push registry.company.com/model-server:v1.0" },
+    { label: "5. Deploy", color: colors.red, description: "Pull and run on production servers or Kubernetes cluster" }
+  ]}
+/>
+
+### 2.2. Docker Best Practices
+
+**Optimized Dockerfile Structure:**
+
+```dockerfile
+# 1. Use specific, minimal base images
+FROM python:3.12-slim
+
+# 2. Set working directory
+WORKDIR /app
+
+# 3. Copy dependency files first (layer caching)
+COPY requirements.txt .
+
+# 4. Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 5. Copy application code and model
+COPY app.py model.pkl ./
+
+# 6. Expose port
+EXPOSE 8000
+
+# 7. Define startup command
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Layer Caching</strong>
+    <br />
+    Copy requirements.txt before code. Dependencies change less frequently, so Docker can cache this layer and rebuild faster.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Minimal Base Images</strong>
+    <br />
+    Use slim or alpine variants (python:3.12-slim). Smaller images mean faster pulls and lower attack surface.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Security</strong>
+    <br />
+    Run as non-root user. Scan images for vulnerabilities. Use .dockerignore to avoid copying secrets.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Multi-Stage Builds</strong>
+    <br />
+    Build in one stage, copy artifacts to minimal runtime stage. Keeps final image small.
+  </Box>
+</CardGrid>
+
+:::info Industry Best Practice
+Most production ML services are containerized. Whether you manage containers yourself or use cloud services (AWS SageMaker, GCP AI Platform), containers provide the standard deployable unit. Kubernetes orchestration relies on this uniformity.
+:::
+
+## 3. Serving Models via APIs
+
+### 3.1. FastAPI for ML Serving
+
+**In plain English:** An API is like a restaurant menu. Your model is the kitchen (where the "cooking" happens), and the API is how customers (other services, apps, users) place orders and receive results. FastAPI makes creating this menu incredibly easy and fast.
+
+**In technical terms:** FastAPI is a modern, high-performance web framework for building APIs in Python. It is built on ASGI/Uvicorn, supports asynchronous request handling, automatic data validation via Pydantic, and generates interactive documentation automatically.
+
+**Why it matters:** FastAPI lets you go from `model.predict()` to a production-ready web service in minutes. Its performance rivals Node.js and Go, its automatic validation prevents malformed inputs from reaching your model, and its built-in documentation makes integration trivial.
+
+**Key FastAPI Features:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>High Performance</strong>
+    <br />
+    Built on Starlette and Pydantic. Asynchronous support handles concurrent requests efficiently. One of the fastest Python frameworks.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Automatic Validation</strong>
+    <br />
+    Uses Python type hints and Pydantic models. Validates incoming JSON automatically. Rejects invalid requests with clear errors.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Interactive Docs</strong>
+    <br />
+    Auto-generates OpenAPI documentation at /docs. Test API directly in browser. No manual documentation needed.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Minimal Boilerplate</strong>
+    <br />
+    Define endpoints with decorators. Pydantic handles serialization. Deploy in minutes, not hours.
+  </Box>
+</CardGrid>
+
+**Simple FastAPI Example:**
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+
+app = FastAPI()
+model = joblib.load("model.pkl")  # Load once at startup
+
+class PredictionInput(BaseModel):
+    features: list[float]
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+@app.post("/predict")
+async def predict(input_data: PredictionInput):
+    prediction = model.predict([input_data.features])
+    return {"prediction": prediction[0]}
+```
+
+**Access interactive docs:** `http://localhost:8000/docs`
+
+> **Insight**
+>
+> Loading the model outside endpoint functions (at app startup) is critical. Loading on every request would be extremely slow. Load once, predict many times.
+
+### 3.2. REST vs. gRPC
+
+<ComparisonTable
+  title="REST vs. gRPC Comparison"
+  headers={["Feature", "REST (FastAPI)", "gRPC"]}
+  rows={[
+    ["Protocol", "HTTP/1.1, widely supported", "HTTP/2, multiplexing enabled"],
+    ["Data Format", "JSON (text-based, human-readable)", "Protocol Buffers (compact binary)"],
+    ["Performance", "Good, but higher latency due to JSON parsing", "High; lower latency, better throughput"],
+    ["Streaming", "Limited (unary request-response)", "Unary, server, client, bidirectional streaming"],
+    ["Coupling", "Loosely coupled; independent client/server", "Tightly coupled; shared .proto file required"],
+    ["Debugging", "Easy; JSON testable with curl, Postman, browser", "Harder; binary format requires grpcurl or tools"],
+    ["Browser Support", "Native support", "Requires gRPC-Web proxy"],
+    ["Use Cases", "Public APIs, web/mobile backends, broad compatibility", "Internal microservices, real-time streaming, low-latency systems"]
+  ]}
+/>
+
+**When to Use REST:**
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>External-Facing APIs</strong>
+      <br /><br />
+      Front-end or mobile apps calling model directly
+      <br /><br />
+      Simple integration, human-readable JSON
+      <br /><br />
+      <strong>Example:</strong> Fraud detection API called by web app
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.green} padding={20}>
+      <strong>Quick Prototypes</strong>
+      <br /><br />
+      Rapid development and testing
+      <br /><br />
+      Interactive documentation for stakeholders
+      <br /><br />
+      <strong>Example:</strong> Internal tool for data scientists to test models
+    </Box>
+  </Column>
+</Row>
+
+**When to Use gRPC:**
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>Microservice Communication</strong>
+      <br /><br />
+      Internal services calling each other at high volume
+      <br /><br />
+      Low latency critical (banking, trading systems)
+      <br /><br />
+      <strong>Example:</strong> Transaction service → fraud detection model (thousands of calls/sec)
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.orange} padding={20}>
+      <strong>Streaming Use Cases</strong>
+      <br /><br />
+      Real-time bidirectional communication
+      <br /><br />
+      Multiple predictions in single connection
+      <br /><br />
+      <strong>Example:</strong> Video processing pipeline with frame-by-frame inference
+    </Box>
+  </Column>
+</Row>
+
+**Performance Differences:**
+
+:::info Benchmark Results
+Studies show gRPC can be 2-10x faster than REST for the same data, depending on payload size and serialization overhead. Binary Protobuf encoding is dramatically more efficient than JSON for large payloads.
+
+**Communication Models:**
+- REST: Half-duplex (one request, one response, sequential)
+- gRPC: Full-duplex (simultaneous bidirectional communication)
+:::
+
+<ProcessFlow
+  title="gRPC Advantages for ML"
+  steps={[
+    { label: "Binary Encoding", description: "Protobuf is 3-10x smaller than JSON for same data" },
+    { label: "HTTP/2 Multiplexing", description: "Multiple requests over single connection, no setup overhead" },
+    { label: "Streaming Support", description: "Send batch of images, receive predictions as stream" },
+    { label: "Type Safety", description: ".proto file defines strict contract, code generation automatic" },
+    { label: "Language Neutral", description: "Python server, Java client, Go client—all work seamlessly" }
+  ]}
+/>
+
+## 4. Batch vs. Real-Time Inference
+
+**In plain English:** Real-time inference is like ordering food at a restaurant—you place an order and wait for it to be cooked and served immediately. Batch inference is like meal prepping for the week—you cook everything at once on Sunday and store it for later use.
+
+**In technical terms:** Real-time (synchronous) inference serves predictions on-demand with low latency (under 100ms typically), while batch (asynchronous) inference processes large collections of data at once, prioritizing throughput over latency.
+
+**Why it matters:** This choice drives your entire deployment architecture. Real-time inference requires always-on services with auto-scaling. Batch inference can use scheduled jobs that spin up compute, process data, and shut down—often much more cost-efficient.
+
+<ComparisonTable
+  title="Real-Time vs. Batch Inference"
+  headers={["Aspect", "Real-Time Inference", "Batch Inference"]}
+  rows={[
+    ["Latency", "Low (10-100ms)", "High (minutes to hours)"],
+    ["Throughput", "Individual predictions", "Bulk predictions (millions)"],
+    ["Infrastructure", "Always-on API servers, auto-scaling", "Scheduled jobs, ephemeral compute"],
+    ["Use Case", "User-facing decisions (fraud detection, recommendations)", "Pre-computed results (daily reports, email campaigns)"],
+    ["Cost Model", "Continuous compute cost", "Pay only when job runs"],
+    ["Complexity", "Higher (load balancing, HA, monitoring)", "Lower (simpler job orchestration)"],
+    ["Example", "Credit card transaction scoring (must return in under 100ms)", "Predict churn for all customers nightly"]
+  ]}
+/>
+
+**Real-Time Inference Architecture:**
+
+<StackDiagram
+  title="Real-Time Serving Stack"
+  layers={[
+    { label: "API Layer", color: colors.blue, description: "FastAPI or gRPC server (containerized)" },
+    { label: "Load Balancer", color: colors.purple, description: "Distribute traffic across replicas" },
+    { label: "Auto-Scaling", color: colors.green, description: "Scale pods based on CPU/request rate" },
+    { label: "Model Serving", color: colors.orange, description: "Inference containers (GPU optional)" },
+    { label: "Monitoring", color: colors.red, description: "Latency, throughput, error rate metrics" }
+  ]}
+/>
+
+**Batch Inference Architecture:**
+
+<StackDiagram
+  title="Batch Processing Pipeline"
+  layers={[
+    { label: "Scheduler", color: colors.blue, description: "Airflow, Prefect, cron job" },
+    { label: "Data Loading", color: colors.purple, description: "Read from warehouse (BigQuery, Snowflake)" },
+    { label: "Distributed Compute", color: colors.green, description: "Spark, Dask, Ray for parallel processing" },
+    { label: "Model Inference", color: colors.orange, description: "Predict on millions of rows" },
+    { label: "Write Results", color: colors.red, description: "Store predictions in database/data lake" }
+  ]}
+/>
+
+**Decision Framework:**
+
+<ProcessFlow
+  title="Choosing Inference Mode"
+  steps={[
+    { label: "Is prediction needed immediately?", description: "Yes → Real-time, No → Batch possible" },
+    { label: "User waiting for response?", description: "Yes → Real-time required" },
+    { label: "Can results be pre-computed?", description: "Yes → Batch more cost-efficient" },
+    { label: "Traffic pattern?", description: "Steady → Real-time, Spiky/scheduled → Batch" },
+    { label: "Latency SLA?", description: "Under 1s → Real-time, Over 1min → Batch acceptable" }
+  ]}
+/>
+
+:::warning Hybrid Approaches
+Many production systems use both:
+- **Real-time:** Serve predictions for new users or edge cases
+- **Batch:** Pre-compute predictions for known users nightly
+
+Store batch results in cache/database. Real-time service checks cache first, only computes if missing. This provides low latency at batch job costs.
+:::
+
+## 5. Hands-On: gRPC Model Serving
+
+**Objective:** Deploy a trained linear regression model (`y = 2x`) as a gRPC service, demonstrating the full workflow from model training to remote prediction calls.
+
+### 5.1. Project Structure
+
+```
+grpc-example/
+├── model.pkl              # Trained model (serialized)
+├── prediction.proto       # gRPC service definition
+├── server.py              # gRPC server implementation
+├── client.py              # gRPC client implementation
+├── Dockerfile             # Container definition
+├── requirements.txt       # Python dependencies
+└── README.md             # Setup instructions
+```
+
+### 5.2. Define gRPC Service (.proto)
+
+```protobuf
+syntax = "proto3";
+
+service MLModel {
+  rpc Predict(PredictRequest) returns (PredictResponse);
+}
+
+message PredictRequest {
+  repeated float features = 1;
+}
+
+message PredictResponse {
+  float prediction = 1;
+  string model_version = 2;
+}
+```
+
+**Protocol Breakdown:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>syntax = "proto3"</strong>
+    <br />
+    Specifies Protocol Buffers version 3 (latest, simpler syntax than proto2)
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>service MLModel</strong>
+    <br />
+    Defines the gRPC service (like an API endpoint) with RPC methods
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>message PredictRequest</strong>
+    <br />
+    Request schema: repeated float = list of feature values
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>message PredictResponse</strong>
+    <br />
+    Response schema: prediction (float) + model_version (string)
+  </Box>
+</CardGrid>
+
+**Generate Python Code:**
+
+```bash
+python -m grpc_tools.protoc \
+  -I. \
+  --python_out=. \
+  --grpc_python_out=. \
+  prediction.proto
+```
+
+**Generated Files:**
+- `prediction_pb2.py` — Protobuf message classes (PredictRequest, PredictResponse)
+- `prediction_pb2_grpc.py` — gRPC service classes (client stub, server base class)
+
+### 5.3. Server Implementation
+
+<ProcessFlow
+  title="gRPC Server Lifecycle"
+  steps={[
+    { label: "Load Model", description: "joblib.load('model.pkl') at server startup" },
+    { label: "Define Service", description: "Implement Predict RPC method" },
+    { label: "Start Server", description: "Listen on port 5000, accept connections" },
+    { label: "Handle Requests", description: "Convert features → predict → return response" },
+    { label: "Error Handling", description: "Set gRPC status codes for failures" }
+  ]}
+/>
+
+**Key Implementation Details:**
+
+```python
+class MLModelService(prediction_pb2_grpc.MLModelServicer):
+    def __init__(self):
+        self.model = joblib.load("model.pkl")
+        self.version = "1.0.0"
+
+    def Predict(self, request, context):
+        try:
+            features = np.array([request.features])
+            prediction = self.model.predict(features)[0]
+
+            return prediction_pb2.PredictResponse(
+                prediction=float(prediction),
+                model_version=self.version
+            )
+        except Exception as e:
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(str(e))
+            return prediction_pb2.PredictResponse()
+```
+
+### 5.4. Client Implementation
+
+```python
+def predict(stub, features):
+    request = prediction_pb2.PredictRequest(features=features)
+    response = stub.Predict(request)
+    return response
+
+with grpc.insecure_channel("localhost:500") as channel:
+    stub = prediction_pb2_grpc.MLModelStub(channel)
+
+    test_cases = [[2.0], [5.0], [10.0]]
+    for features in test_cases:
+        response = predict(stub, features)
+        print(f"Input: {features[0]}, Prediction: {response.prediction}")
+```
+
+### 5.5. Containerization
+
+```dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+
+COPY server.py model.pkl prediction.proto requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Generate gRPC code inside container
+RUN python -m grpc_tools.protoc \
+    -I. --python_out=. --grpc_python_out=. prediction.proto
+
+EXPOSE 5000
+CMD ["python", "-u", "server.py"]
+```
+
+**Build and Run:**
+
+```bash
+# Build image
+docker build -t grpc-model-server:v1.0 .
+
+# Run container (map container port 5000 → host port 500)
+docker run -p 500:5000 grpc-model-server:v1.0
+
+# Test with client
+python client.py
+```
+
+:::warning Security Note
+The example uses `grpc.insecure_channel()` for simplicity (no TLS encryption). This is acceptable for:
+- Local development and testing
+- Internal networks behind firewall
+- Production simulations
+
+**For actual production**, always use `grpc.secure_channel()` with TLS certificates:
+
+```python
+# Client with TLS
+credentials = grpc.ssl_channel_credentials(
+    root_certificates=open('ca.pem', 'rb').read()
+)
+channel = grpc.secure_channel('server:443', credentials)
+
+# Server with TLS
+server_credentials = grpc.ssl_server_credentials(
+    [(private_key, certificate_chain)]
+)
+server.add_secure_port('[::]:443', server_credentials)
+```
+
+Certificates can be obtained from:
+- Let's Encrypt (free, automated)
+- Commercial Certificate Authorities
+- Self-signed (for internal microservices, requires trust setup)
+:::
+
+### 5.6. Expected Output
+
+```
+# Server logs
+INFO:     Model loaded successfully
+INFO:     gRPC server listening on port 5000
+
+# Client output
+Input: 2.0, Prediction: 4.0, Model Version: 1.0.0
+Input: 5.0, Prediction: 10.0, Model Version: 1.0.0
+Input: 10.0, Prediction: 20.0, Model Version: 1.0.0
+```
+
+## Key Takeaways
+
+<CardGrid columns={1}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Serialization format depends on deployment context.</strong> Pickle for quick Python-only prototypes, ONNX for production multi-language deployment, TorchScript for PyTorch mobile apps.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Containers are the standard deployable unit.</strong> Docker solves "it works on my machine" by packaging environment with code. Essential for Kubernetes orchestration and cloud deployment.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>FastAPI enables rapid API development.</strong> Go from model.predict() to production API in minutes with automatic validation, async support, and interactive documentation.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>REST vs. gRPC is a trade-off between simplicity and performance.</strong> REST for external APIs and ease of integration. gRPC for internal microservices requiring low latency and high throughput.
+  </Box>
+  <Box color={colors.red} padding={20}>
+    <strong>Batch vs. real-time inference drives architecture.</strong> Real-time requires always-on infrastructure with auto-scaling. Batch uses scheduled jobs, often more cost-efficient for pre-computable predictions.
+  </Box>
+</CardGrid>
+
+:::info Next Steps
+The next chapter continues deployment with Kubernetes orchestration, exploring how to manage containerized ML services at scale with automatic healing, rolling updates, and resource management.
+:::

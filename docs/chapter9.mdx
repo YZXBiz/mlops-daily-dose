@@ -1,0 +1,283 @@
+---
+sidebar_position: 9
+title: "Model Development and Optimization—Part B"
+description: "Master fine-tuning, transfer learning, and model compression techniques including pruning. Learn how to optimize ML models for production deployment."
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "The models that score highest on accuracy benchmarks are not always the models that make it to production. They may be too slow or too large."
+
+## Table of Contents
+
+1. [Model Optimization](#1-model-optimization)
+   1. [Fine-Tuning Fundamentals](#11-fine-tuning-fundamentals)
+   2. [Transfer Learning Pipeline](#12-transfer-learning-pipeline)
+   3. [Fine-Tuning Best Practices](#13-fine-tuning-best-practices)
+2. [Model Compression](#2-model-compression)
+   1. [When to Apply Compression](#21-when-to-apply-compression)
+   2. [Pruning Techniques](#22-pruning-techniques)
+   3. [Layer Compaction](#23-layer-compaction)
+3. [Key Takeaways](#3-key-takeaways)
+
+## 1. Model Optimization
+
+### 1.1. Fine-Tuning Fundamentals
+
+**In plain English:** Fine-tuning is like learning to play a new song when you already know how to play piano. You do not start from zero—you already have the fundamental skills (hand coordination, reading music). You just adapt those skills to the specific piece.
+
+**In technical terms:** Fine-tuning leverages pre-trained models that have learned general patterns (edges and textures in images; syntax and semantic structures in language) and adapts these features to a specific task. Instead of training from scratch, you start with weights learned on massive datasets and adjust them for your use case.
+
+**Why it matters:** Fine-tuning dramatically reduces training time and data requirements. A model that might need days of training and millions of examples can reach comparable performance in hours with thousands of examples. This is the difference between feasible and infeasible for many production ML projects.
+
+<ProcessFlow
+  title="Why Fine-Tuning Works"
+  steps={[
+    { label: "Pre-trained Model", description: "General patterns learned from massive datasets" },
+    { label: "Transfer Knowledge", description: "Rich feature representations relevant to many tasks" },
+    { label: "Task Adaptation", description: "Adjust to specifics of your domain with minimal data" },
+    { label: "Production Ready", description: "Achieve high performance with less compute and data" }
+  ]}
+/>
+
+### 1.2. Transfer Learning Pipeline
+
+The typical transfer learning and fine-tuning pipeline follows a systematic approach:
+
+<StackDiagram
+  title="Transfer Learning + Fine-Tuning Pipeline"
+  layers={[
+    { label: "1. Pre-trained Model", color: colors.blue, description: "ResNet on ImageNet, BERT on web text" },
+    { label: "2. Adapt Output Layer", color: colors.purple, description: "Replace classifier for your task (1000→10 classes)" },
+    { label: "3. Freeze Base Layers", color: colors.green, description: "Train only new head, preserve representations" },
+    { label: "4. Unfreeze Gradually", color: colors.orange, description: "Fine-tune top layers with small learning rate" },
+    { label: "5. Monitor & Validate", color: colors.red, description: "Few epochs needed due to learned features" }
+  ]}
+/>
+
+**Phase 1: Transfer Learning (Feature Extraction)**
+- Start from pre-trained model (e.g., DistilBERT pre-trained on large corpora)
+- Replace classifier head to match your task
+- Freeze base model parameters (`requires_grad = False`)
+- Train only the new classification head
+
+**Phase 2: Fine-Tuning (Selective Adaptation)**
+- Unfreeze top layers (e.g., last 2 transformer blocks)
+- Use much smaller learning rate (e.g., 2e-5 vs 5e-4)
+- Fine-tune selectively to avoid catastrophic forgetting
+- Monitor validation performance continuously
+
+> **Insight**
+>
+> The code demonstrates a hybrid approach: Phase 1 is transfer learning (frozen base, train head), and Phase 2 is fine-tuning (unfreeze top layers). This two-stage strategy is more stable than full fine-tuning from the start.
+
+### 1.3. Fine-Tuning Best Practices
+
+<CardGrid columns={2}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Gradual Unfreezing</strong>
+    <br />
+    Unfreeze layer-by-layer starting from the top. Monitor if each step helps before unfreezing more.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Discriminative Fine-Tuning</strong>
+    <br />
+    Use different learning rates per layer: smaller for embeddings, larger for classifier head.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Early Stopping</strong>
+    <br />
+    Stop when validation performance degrades. Small datasets overfit quickly.
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Conservative Learning Rates</strong>
+    <br />
+    Always use smaller LR when fine-tuning (typically 10-100x smaller than training from scratch).
+  </Box>
+</CardGrid>
+
+:::warning
+When unfreezing layers, use a much smaller learning rate (e.g., 2e-5 instead of 5e-4) to avoid destroying the useful knowledge encoded during pre-training. The pre-trained weights are your most valuable asset.
+:::
+
+**Key Configuration Parameters:**
+
+```python
+# Phase 1: Head-only training
+learning_rate = 5e-4  # Higher LR for new head
+num_train_epochs = 1
+# Freeze all base model parameters
+
+# Phase 2: Fine-tuning top layers
+learning_rate = 2e-5  # Much smaller LR
+num_train_epochs = 1
+# Unfreeze only top 2 transformer layers
+```
+
+**Observations:**
+- Within 1-2 epochs, the model often reaches good accuracy (80%+ on SST-2)
+- Most features were already learned during pre-training
+- This jump-start is critical when data is limited
+
+## 2. Model Compression
+
+### 2.1. When to Apply Compression
+
+**In plain English:** Imagine you have a powerful but bulky desktop computer. It works great at home, but you cannot carry it on a plane or run it on battery power. Model compression is like creating a laptop version—smaller, more efficient, but still powerful enough for your needs.
+
+**In technical terms:** Model compression reduces the computational footprint (size and/or inference time) of a model while preserving as much performance as possible. Techniques include pruning, knowledge distillation, low-rank factorization, and quantization.
+
+**Why it matters:** Production environments have constraints that research environments do not: latency requirements, memory limits, cost considerations, edge device constraints. Compression makes the difference between a model that works in a lab and one that works in production.
+
+<ComparisonTable
+  title="When to Consider Model Compression"
+  headers={["Scenario", "Constraint", "Solution"]}
+  rows={[
+    ["Real-time inference", "Latency must be under 100ms", "Prune + quantize model"],
+    ["Mobile deployment", "Model must fit in under 50MB", "Knowledge distillation to smaller student"],
+    ["Cloud cost reduction", "Serving 1M requests/day", "Compress to reduce compute per request"],
+    ["Edge devices", "IoT sensors with limited memory", "Aggressive pruning + quantization"]
+  ]}
+/>
+
+:::caution
+Always measure baseline performance first. If your model already meets latency and memory targets, compression may be unnecessary complexity. Only optimize what is actually a bottleneck.
+:::
+
+### 2.2. Pruning Techniques
+
+**Unstructured vs. Structured Pruning:**
+
+<Row gap={20}>
+  <Column flex={1}>
+    <Box color={colors.blue} padding={20}>
+      <strong>Unstructured Pruning</strong>
+      <br /><br />
+      Remove individual weights based on magnitude. Results in sparse matrices (many zeros).
+      <br /><br />
+      <strong>Pros:</strong> High sparsity possible (80-90%)
+      <br />
+      <strong>Cons:</strong> Requires sparse-aware hardware/libraries for actual speedup
+    </Box>
+  </Column>
+  <Column flex={1}>
+    <Box color={colors.purple} padding={20}>
+      <strong>Structured Pruning</strong>
+      <br /><br />
+      Remove entire neurons, filters, or channels. Results in smaller, denser layers.
+      <br /><br />
+      <strong>Pros:</strong> Real speedups on standard hardware
+      <br />
+      <strong>Cons:</strong> Lower compression ratio than unstructured
+    </Box>
+  </Column>
+</Row>
+
+**Pruning Decision Criteria:**
+
+The most common approach is **magnitude-based pruning**:
+- Weights with very small absolute values contribute less
+- Zero them out with minimal effect on outputs
+- Simple and widely effective
+
+**Iterative Pruning Strategy:**
+
+<ProcessFlow
+  title="Prune-Fine-Tune Cycle"
+  steps={[
+    { label: "Train Baseline", description: "Full model to convergence" },
+    { label: "Prune 10-20%", description: "Remove lowest magnitude weights" },
+    { label: "Fine-Tune", description: "Recover accuracy with remaining weights" },
+    { label: "Evaluate", description: "Check accuracy vs. sparsity trade-off" },
+    { label: "Repeat", description: "Iterate until target sparsity or accuracy threshold" }
+  ]}
+/>
+
+**Practical Implementation Notes:**
+
+```python
+# Unstructured pruning (80% sparsity)
+prune.global_unstructured(
+    parameters_to_prune,
+    pruning_method=prune.L1Unstructured,
+    amount=0.80
+)
+
+# Structured pruning (30% of neurons)
+prune.ln_structured(
+    module=fc2,
+    name='weight',
+    amount=0.30,
+    n=2,  # L2 norm
+    dim=0  # Output neurons
+)
+```
+
+> **Insight**
+>
+> Research shows you can prune 80-90% of weights from some deep networks with only a small accuracy drop, especially with fine-tuning. However, pushing to extreme sparsity (>95%) typically degrades performance noticeably.
+
+### 2.3. Layer Compaction
+
+:::warning Critical Implementation Detail
+Pruning alone does NOT reduce memory or improve speed. The tensors remain the same size. You must perform additional steps to realize compression benefits.
+:::
+
+**After Pruning, Choose Your Path:**
+
+<StackDiagram
+  title="Post-Pruning Compression Strategies"
+  layers={[
+    { label: "Structured Pruning", color: colors.blue, description: "Remove entire neurons/filters" },
+    { label: "Layer Compaction", color: colors.purple, description: "Rebuild layers with fewer units (256→180 neurons)" },
+    { label: "Sparse Storage", color: colors.green, description: "Use CSR format for unstructured pruning" },
+    { label: "Sparse Kernels", color: colors.orange, description: "Deploy with cuSPARSE or specialized libraries" }
+  ]}
+/>
+
+**Example: Layer Compaction After Structured Pruning**
+
+If you pruned 30% of `fc2` (256 → 128 neurons), you must rebuild the architecture:
+
+```python
+# Original architecture
+fc2: 256 → 128 neurons
+fc3: 128 → 10 neurons (depends on fc2 output)
+
+# After pruning fc2 by 30% (remove ~38 neurons)
+fc2_new: 256 → 90 neurons
+fc3_new: 90 → 10 neurons  # Must adjust input dimension
+```
+
+**For Unstructured Pruning: Sparse Storage**
+
+```python
+# Convert to Compressed Sparse Row format
+weight_sparse = weight.to_sparse_csr()
+
+# Actual memory reduction:
+# Dense: 256 × 128 = 32,768 floats
+# 80% sparse CSR: ~6,554 floats + indices
+# ~5x memory reduction
+```
+
+## 3. Key Takeaways
+
+<CardGrid columns={1}>
+  <Box color={colors.blue} padding={20}>
+    <strong>Fine-tuning provides a massive head start.</strong> Pre-trained models have already learned low-level features. You are adapting them, not learning from scratch. This saves time, data, and compute.
+  </Box>
+  <Box color={colors.purple} padding={20}>
+    <strong>Hybrid approaches work best.</strong> Start with frozen transfer learning (train head only), then selectively fine-tune top layers with a conservative learning rate.
+  </Box>
+  <Box color={colors.green} padding={20}>
+    <strong>Pruning requires post-processing.</strong> The pruning operation itself just zeros weights. To achieve true compression, you must either compact layers (structured pruning) or use sparse storage/kernels (unstructured pruning).
+  </Box>
+  <Box color={colors.orange} padding={20}>
+    <strong>Model compression is not one-size-fits-all.</strong> Choose techniques based on deployment constraints: latency, memory, hardware capabilities. Measure baselines before optimizing.
+  </Box>
+</CardGrid>
+
+:::info Next Steps
+The next chapter continues model compression with knowledge distillation, low-rank factorization, and quantization—three additional powerful techniques for production deployment.
+:::

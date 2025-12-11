@@ -1,0 +1,583 @@
+---
+sidebar_position: 16
+title: "Monitoring and Observability—Part A: Fundamentals"
+description: "Comprehensive guide to model degradation, drift detection techniques, logging and observability for production ML systems with hands-on examples"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+> "Deploying a model is not the end of the journey, but the beginning of a new phase requiring continuous attention to maintain accuracy, reliability, and business value."
+
+## Table of Contents
+
+1. [Introduction](#1-introduction)
+2. [Why Do Models Degrade?](#2-why-do-models-degrade)
+3. [Understanding Model Degradation](#3-understanding-model-degradation)
+   - 3.1. [Data Drift](#31-data-drift)
+   - 3.2. [Concept Drift](#32-concept-drift)
+   - 3.3. [Training-Serving Skew](#33-training-serving-skew)
+   - 3.4. [Outliers](#34-outliers)
+4. [Techniques to Detect Drift](#4-techniques-to-detect-drift)
+   - 4.1. [Data Drift Detection Methods](#41-data-drift-detection-methods)
+   - 4.2. [Concept Drift Detection](#42-concept-drift-detection)
+   - 4.3. [ADWIN for Streaming Data](#43-adwin-for-streaming-data)
+5. [Logging and Observability for ML Systems](#5-logging-and-observability-for-ml-systems)
+6. [Hands-on: Drift Detection](#6-hands-on-drift-detection)
+7. [Hands-on: Logging and Result Collection](#7-hands-on-logging-and-result-collection)
+8. [Conclusion](#8-conclusion)
+
+---
+
+## 1. Introduction
+
+**In plain English:** Think of monitoring an ML model like regularly checking the health of a car. Just as a car needs oil changes, tire pressure checks, and engine diagnostics to keep running smoothly, an ML model needs continuous monitoring to ensure it still works correctly as the world around it changes.
+
+**In technical terms:** ML model monitoring is the systematic observation, measurement, and maintenance of machine learning models after deployment. It involves tracking performance degradation, operational anomalies, data distribution shifts, and system health metrics to enable timely interventions before issues affect end users or business outcomes.
+
+**Why it matters:** Unlike traditional software bugs that crash loudly, ML failures are often silent. The API continues returning predictions with low latency and 200 OK status codes, yet predictions become progressively less accurate and less useful. This silent degradation can go unnoticed for weeks or months, slowly eroding business value and user trust. Robust monitoring is the only way to detect and prevent these invisible failures.
+
+<DiagramContainer>
+  <Row gap="large">
+    <Column flex={1}>
+      <Box padding="large" background={colors.red} border>
+        <h4 style={{marginTop: 0}}>Traditional Software Failures</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Server crashes</li>
+          <li>404 errors</li>
+          <li>Application exceptions</li>
+          <li><strong>Loud and obvious</strong></li>
+        </ul>
+      </Box>
+    </Column>
+    <Column flex={1}>
+      <Box padding="large" background={colors.orange} border>
+        <h4 style={{marginTop: 0}}>ML System Failures</h4>
+        <ul style={{fontSize: '0.9em', marginBottom: 0}}>
+          <li>Silent accuracy degradation</li>
+          <li>Distribution drift</li>
+          <li>Concept shift</li>
+          <li><strong>Silent and invisible</strong></li>
+        </ul>
+      </Box>
+    </Column>
+  </Row>
+</DiagramContainer>
+
+Once a model is live, it interacts with real-world data and users in environments that are dynamic, evolving, and frequently unpredictable. Data distributions may shift due to seasonal trends, new customer behaviors, or market changes. Upstream pipelines can fail, introducing missing or corrupted features. Even small alterations in external systems can lead to significant changes in data generation.
+
+---
+
+## 2. Why Do Models Degrade?
+
+Failures in production ML systems can be broadly categorized into two groups:
+
+<CardGrid columns={2}>
+  <Box padding="large" background={colors.blue}>
+    <strong>Software System Failures</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Traditional issues affecting any complex software:
+      <ul style={{marginTop: '8px'}}>
+        <li>Dependency failures</li>
+        <li>Deployment errors</li>
+        <li>Hardware failures</li>
+        <li>Distributed system bugs</li>
+      </ul>
+    </div>
+  </Box>
+  <Box padding="large" background={colors.purple}>
+    <strong>ML-Specific Failures</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      Unique failures from learning from data:
+      <ul style={{marginTop: '8px'}}>
+        <li>Data drift</li>
+        <li>Concept drift</li>
+        <li>Training-serving skew</li>
+        <li>Outliers and anomalies</li>
+      </ul>
+    </div>
+  </Box>
+</CardGrid>
+
+**Software system failures** require strong traditional software engineering and DevOps skills. These include dependency failures (upstream service breaks), deployment errors (wrong model binary deployed), hardware failures (GPU fails), and distributed system bugs (workflow scheduler errors).
+
+**ML-specific failures** are subtle and unique to systems that learn from data. They do not typically cause crashes but result in degradation of the model's predictive performance. These failures often occur silently because the system continues to operate technically, even as outputs become nonsensical.
+
+---
+
+## 3. Understanding Model Degradation
+
+While traditional software systems fail in clear and predictable ways, machine learning models often degrade subtly as their environment evolves. This degradation stems from shifts in data, changes in user behavior, or gradual mismatches between the model's assumptions and real-world conditions.
+
+### 3.1. Data Drift
+
+**In plain English:** Imagine training a weather prediction model on data from summer months, then deploying it in winter. The temperature ranges, humidity patterns, and weather events are completely different. Even though the model technically still works, its predictions will be wrong because the input data has fundamentally changed.
+
+**In technical terms:** Data drift (also called covariate shift) refers to changes in the input data distribution. The statistical properties of features in production differ from those seen during training, even though the underlying relationship between inputs and outputs may remain the same. This occurs when P(X) changes but P(Y|X) remains constant.
+
+**Why it matters:** Not all data drift is catastrophic. Sometimes models generalize fine to new distributions (a slight shift in age might not matter if the model is robust). But significant drift can break the model's assumptions, leading to degraded performance. Detecting data drift is about monitoring feature statistics (mean, standard deviation, minimum/maximum, distributions, correlations) and seeing if they deviate from training stats beyond a threshold.
+
+<DiagramContainer>
+  <Box padding="medium" background={colors.blue} border>
+    <strong>Example: Marketing Platform</strong>
+    <div style={{marginTop: '12px', fontSize: '0.9em'}}>
+      <strong>Before:</strong> Model trained on 30-45 year-old users
+      <br/>
+      <strong>After:</strong> Marketing campaign attracts 18-25 year-old users
+      <br/>
+      <strong>Result:</strong> Age feature distribution shifts significantly
+    </div>
+  </Box>
+</DiagramContainer>
+
+### 3.2. Concept Drift
+
+**In plain English:** Think of concept drift as when the rules of the game change. A credit card fraud model learned that "small purchases from foreign IPs within minutes" meant fraud. But fraudsters adapted and now make larger, domestic transactions spread over hours. The inputs look normal, but what they mean has completely changed.
+
+**In technical terms:** Concept drift indicates that the relationship between inputs and outputs has changed, even if the input distribution remains the same. The underlying concept that the model is trying to predict has evolved. Mathematically, P(Y|X) changes while P(X) may or may not change.
+
+**Why it matters:** Concept drift almost always implies the model is now suboptimal and needs an update. Unlike data drift (which the model can sometimes handle if within its learned range), concept drift requires retraining on more recent data to catch the new relationships. This is common in adversarial domains (fraud, spam) and dynamic environments (user preferences, market conditions).
+
+<ComparisonTable
+  headers={['Aspect', 'Before Drift', 'After Drift']}
+  rows={[
+    [
+      'Input Range',
+      'Feature values in familiar ranges',
+      'Feature values still in familiar ranges'
+    ],
+    [
+      'Relationship',
+      'Learned pattern: X → Y',
+      'New pattern: X → Y (different mapping)'
+    ],
+    [
+      'Example',
+      'Churn: low engagement = likely churn',
+      'Churn: even high engagement users churn (economic factors)'
+    ]
+  ]}
+/>
+
+### 3.3. Training-Serving Skew
+
+**In plain English:** Imagine baking a cake using one recipe in the test kitchen, but when you serve it at the restaurant, the chef uses slightly different measurements or ingredients. The cake looks similar but tastes different. Training-serving skew is when the data processing differs between training and production, causing subtle bugs.
+
+**In technical terms:** Training-serving skew occurs when the feature data used during model training differs from the feature data used during online inference. This is not caused by external changes in the world, but by internal discrepancies in the ML pipeline itself—a self-inflicted wound caused by process or implementation errors.
+
+**Why it matters:** This is a particularly common and frustrating issue. If the data the model gets in production is processed differently from training data, it causes performance issues. For example, if a feature was normalized in training but the normalization is not applied correctly in production, the model input is skewed.
+
+<CardGrid columns={3}>
+  <Box padding="medium" background={colors.red}>
+    <strong>Separate Codebases</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Training uses Pandas, serving uses C++. Subtle implementation differences cause skew.
+    </div>
+  </Box>
+  <Box padding="medium" background={colors.orange}>
+    <strong>Data Pipeline Bugs</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Production pipeline fills missing values with NaNs, training data was clean.
+    </div>
+  </Box>
+  <Box padding="medium" background={colors.purple}>
+    <strong>Time Window Discrepancies</strong>
+    <div style={{marginTop: '8px', fontSize: '0.85em'}}>
+      Training uses 30-day window, serving uses 15-day window due to bug.
+    </div>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Mitigating training-serving skew is a primary motivation for adopting a feature store, which provides a centralized repository for feature definitions and logic, ensuring that the same transformations are applied in both training and serving environments.
+
+### 3.4. Outliers
+
+**In plain English:** An outlier is like seeing a giraffe when your model was only trained on pictures of dogs and cats. The model has never encountered anything like it and will likely make a wild guess.
+
+**In technical terms:** An outlier is an individual data point very different from the training data. Monitoring for outliers can involve checking if feature values fall outside expected ranges (negative values where none existed, extremely large values).
+
+**Why it matters:** In fraud detection, if a model was never trained on transactions above $1 million and one day it sees a $15 million transaction, that is an outlier. The model's prediction will likely be unreliable. Detecting such events (and perhaps routing them for special handling) is important. Sometimes outliers can be the first hint of drift (a few outlier instances appear before the whole distribution shifts).
+
+---
+
+## 4. Techniques to Detect Drift
+
+There are several robust statistical and algorithmic methods to detect both data drift (changes in feature distributions) and concept drift (changes in the relationship between features and labels).
+
+### 4.1. Data Drift Detection Methods
+
+For data drift, the goal is to compare the distribution of incoming features against a reference distribution (from the training set or a recent stable period).
+
+<StackDiagram
+  layers={[
+    {
+      label: 'KL Divergence',
+      color: colors.blue,
+      items: ['Quantifies divergence between distributions', 'Higher value = greater drift', 'D_KL = 0 when distributions identical']
+    },
+    {
+      label: 'Population Stability Index (PSI)',
+      color: colors.green,
+      items: ['Measures shifts across binned ranges', 'PSI < 0.1: No drift', '0.1 ≤ PSI < 0.25: Moderate', 'PSI ≥ 0.25: Significant']
+    },
+    {
+      label: 'Kolmogorov-Smirnov (KS) Test',
+      color: colors.purple,
+      items: ['Compares cumulative distributions', 'Measures maximum gap between CDFs', 'Small p-value indicates drift']
+    }
+  ]}
+  title="Statistical Drift Detection Methods"
+/>
+
+**KL Divergence** quantifies how one distribution Q(x) (current data) diverges from a reference P(x) (baseline):
+
+```
+D_KL(P || Q) = Σ P(x) log(P(x) / Q(x))
+```
+
+A higher value indicates greater divergence and possible drift. If both P and Q are identical, KL Divergence = 0.
+
+**Population Stability Index (PSI)** measures how feature proportions shift across binned ranges:
+
+```
+PSI = Σ (P_i - Q_i) × log(P_i / Q_i)
+```
+
+Rule of thumb:
+- PSI < 0.1: No significant drift
+- 0.1 ≤ PSI < 0.25: Moderate drift
+- PSI ≥ 0.25: Significant drift
+
+**Kolmogorov-Smirnov (KS) Test** compares cumulative distributions:
+
+```
+D = sup_x |F_1(x) - F_2(x)|
+```
+
+where F_1 (training) and F_2 (current data) are the empirical cumulative distribution functions. A small p-value (e.g., p < 0.01) implies the current data distribution has significantly changed from the baseline.
+
+> **Insight**
+>
+> The KS test measures the largest difference between two cumulative distribution functions to determine whether two datasets are drawn from the same distribution. A large D or small p-value means significant drift between baseline and current data.
+
+### 4.2. Concept Drift Detection
+
+For concept drift, where the underlying mapping between input features and labels changes over time, detection depends on label availability:
+
+<ComparisonTable
+  headers={['Scenario', 'Method', 'Implementation']}
+  rows={[
+    [
+      'With Labels',
+      'Track performance metrics',
+      'Monitor accuracy, F1, AUC over time. Alert if metrics drop below threshold.'
+    ],
+    [
+      'Without Labels',
+      'Train drift classifier',
+      'Combine old and new samples, label as 0 (old) and 1 (new), train classifier. AUC > 0.7 indicates drift.'
+    ]
+  ]}
+/>
+
+**With labels:** If labels are available (even with delay), track model performance metrics:
+
+```
+Alert if: |Accuracy_current - Accuracy_baseline| > τ
+```
+
+**Without labels:** If labels are unavailable, use a drift classifier:
+1. Combine old and new samples
+2. Label them 0 (old) and 1 (new)
+3. Train a simple binary classifier
+4. If accuracy or AUC > 0.7, the new data distribution has likely drifted
+
+### 4.3. ADWIN for Streaming Data
+
+**In plain English:** ADWIN is like a smart sliding window that automatically adjusts its size based on whether the data is changing. It keeps recent data and constantly checks if the earlier part differs from the later part. When it detects a significant change, it concludes drift has occurred.
+
+**In technical terms:** ADWIN (Adaptive Windowing) is an online algorithm for detecting concept drift in streaming data. It maintains a sliding window of recent observations and constantly checks if the average behavior in the earlier part differs from the later part using statistical significance testing.
+
+**Why it matters:** ADWIN is fully online (works as data streams in, no need for batches) and automatically creates data windows based on how quickly data changes. It provides adaptive drift detection without manual parameter tuning.
+
+<ProcessFlow
+  steps={[
+    {
+      label: 'Maintain Window W',
+      description: 'Keep recent data points',
+      color: colors.blue
+    },
+    {
+      label: 'Split into W1, W2',
+      description: 'Older samples vs newer samples',
+      color: colors.green
+    },
+    {
+      label: 'Compute Means',
+      description: 'Calculate averages in each sub-window',
+      color: colors.purple
+    },
+    {
+      label: 'Apply Hoeffding Bound',
+      description: 'Test if difference is statistically significant',
+      color: colors.orange
+    },
+    {
+      label: 'Detect Drift',
+      description: 'If bound exceeded, remove W1, keep W2',
+      color: colors.red
+    }
+  ]}
+/>
+
+ADWIN uses Hoeffding's inequality to compare means:
+
+```
+If |X̄_W1 - X̄_W2| > ε_cut, drift detected
+```
+
+where ε_cut is a confidence bound based on sample size and delta (false alarm rate).
+
+---
+
+## 5. Logging and Observability for ML Systems
+
+**In plain English:** Observability is like having a dashboard in your car that shows speed, fuel, engine temperature, and warning lights. Without it, you are driving blind. For ML systems, observability means having the tools and data to understand what is happening inside your system at all times.
+
+**In technical terms:** Observability for ML services includes traditional logging and monitoring (CPU, memory, request rates) plus ML-specific logging (input features, predictions, confidence scores). The goal is to answer questions when something goes wrong or performance drifts: "Did something change in the input data?", "What was the model prediction on that problematic case?", "Are we seeing more errors than usual?"
+
+**Why it matters:** Production ML systems fail silently. Without comprehensive logging and observability, you cannot detect drift, diagnose errors, or collect data for retraining. Observability transforms invisible problems into actionable signals.
+
+<StackDiagram
+  layers={[
+    {
+      label: 'Prediction and Input Logging',
+      color: colors.blue,
+      items: ['Log model inputs and outputs', 'Sample or aggregate for privacy', 'Enable offline analysis and debugging']
+    },
+    {
+      label: 'System Metrics',
+      color: colors.green,
+      items: ['Latency (95th percentile)', 'Throughput (requests/sec)', 'Error rates (HTTP 500s)']
+    },
+    {
+      label: 'Resource Metrics',
+      color: colors.purple,
+      items: ['CPU, memory, GPU utilization', 'Detect bottlenecks and OOM crashes', 'Optimize resource allocation']
+    },
+    {
+      label: 'Application-Specific Logs',
+      color: colors.orange,
+      items: ['Feature retrieval timing', 'Model loading duration', 'Request tracing (OpenTelemetry)']
+    },
+    {
+      label: 'Alerting and Dashboards',
+      color: colors.red,
+      items: ['Prometheus/Grafana/Evidently integration', 'Define alert thresholds', 'Functional and operational monitoring']
+    }
+  ]}
+  title="ML Observability Stack"
+/>
+
+**Logging predictions and inputs:** Best practice is to log model inputs and outputs for at least a sample of requests. Be mindful of privacy—logging raw data might not be appropriate. Often, logging transformed features or aggregate metrics is a compromise. Having records allows offline analysis when issues arise.
+
+**System metrics:** Monitor standard service metrics: latency (95th percentile response time), throughput (requests per second), error rates (HTTP 500s or custom error counts). These catch issues like service overload or bugs.
+
+**Resource metrics:** CPU, memory, and GPU utilization are important. If CPU is maxed out, scale out. If memory usage climbs, you might have a memory leak. For GPUs, ensure utilization is high; low utilization means over-provisioning.
+
+**Application-specific logs:** If the model has stages (like feature retrieval from a database), log timing for each stage. Observability typically involves tracing (using tools like OpenTelemetry) to see a single request's path through the system.
+
+**Alerting and dashboards:** Integrate with monitoring tools (Prometheus/Grafana/Evidently) to set up dashboards and define alerts. For example:
+- Functional alert: "Model score distribution skewed high compared to last week"
+- Operational alert: "Model service error rate > 5%" or "High memory usage (>90%)"
+
+:::warning
+Logging also feeds the feedback loop. To improve the model, gather production data and outcomes. By logging input features and predictions, and later joining with true outcomes (labels), you assemble a new training dataset reflecting the real production scenario (including any drift).
+:::
+
+---
+
+## 6. Hands-on: Drift Detection
+
+We will demonstrate how to set up a data drift detection system by generating reference and new datasets, introducing drifts, and detecting them using statistical tests.
+
+### Simulation setup:
+
+```python
+import numpy as np
+import pandas as pd
+from scipy import stats
+
+# Simulation parameters
+np.random.seed(42)
+n_features = 5
+n_samples = 1000
+
+# Create reference dataset (training data)
+reference_data = np.random.normal(loc=50, scale=5, size=(n_samples, n_features))
+
+# Create today's dataset with intentional drift
+today_data = reference_data.copy()
+today_data[:, 0] += 3  # Feature 1: mean shift
+today_data[:, 1] *= 1.2  # Feature 2: scale shift
+today_data[:, 2] += np.random.normal(0, 0.5, n_samples)  # Feature 3: mild noise
+# Features 4 and 5: no drift (control)
+
+# Convert to DataFrames
+ref_df = pd.DataFrame(reference_data, columns=[f'feature_{i+1}' for i in range(n_features)])
+today_df = pd.DataFrame(today_data, columns=[f'feature_{i+1}' for i in range(n_features)])
+```
+
+### Drift detection function:
+
+```python
+def detect_drift(reference, current, mean_threshold=2.0, std_threshold=2.0, alpha=0.01):
+    results = []
+
+    for col in reference.columns:
+        ref_col = reference[col]
+        cur_col = current[col]
+
+        # Compute statistics
+        mean_diff = abs(cur_col.mean() - ref_col.mean())
+        std_diff = abs(cur_col.std() - ref_col.std())
+
+        # KS test
+        ks_stat, p_value = stats.ks_2samp(ref_col, cur_col)
+
+        # Flag drift
+        mean_drift = mean_diff > mean_threshold
+        std_drift = std_diff > std_threshold
+        ks_drift = p_value < alpha
+
+        drift_detected = mean_drift or std_drift or ks_drift
+
+        results.append({
+            'Feature': col,
+            'Mean_Diff': mean_diff,
+            'Std_Diff': std_diff,
+            'KS_Stat': ks_stat,
+            'KS_p_value': p_value,
+            'Drift_Detected': drift_detected
+        })
+
+    return pd.DataFrame(results)
+
+# Run detection
+drift_report = detect_drift(ref_df, today_df)
+print(drift_report)
+```
+
+This simulation applies simple statistical tests (mean/std comparisons and KS-test) and produces a concise drift-detection report showing which features have drifted beyond thresholds.
+
+---
+
+## 7. Hands-on: Logging and Result Collection
+
+We will create a FastAPI inference application with comprehensive logging.
+
+### FastAPI app with logging:
+
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+import joblib
+import numpy as np
+import logging
+import os
+from datetime import datetime
+
+# Setup logging
+os.makedirs("logs", exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("logs/model_service.log")
+    ]
+)
+logger = logging.getLogger("model_service")
+
+app = FastAPI()
+model = joblib.load("model.pkl")
+
+class InputData(BaseModel):
+    x: float
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start_time = datetime.now()
+    response = await call_next(request)
+    elapsed = (datetime.now() - start_time).total_seconds()
+
+    logger.info(f"{request.method} {request.url.path} - {elapsed:.3f}s - {response.status_code}")
+    return response
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+@app.post("/predict")
+def predict(data: InputData):
+    start = datetime.now()
+
+    input_array = np.array([[data.x]])
+    prediction = model.predict(input_array)[0]
+
+    latency = (datetime.now() - start).total_seconds()
+
+    logger.info(f"Prediction: input={data.x}, output={prediction:.2f}, latency={latency:.4f}s")
+
+    return {"input": data.x, "prediction": float(prediction)}
+```
+
+Run the app:
+```bash
+uvicorn app:app --port 8000
+```
+
+Test with a client:
+```python
+import requests
+
+response = requests.post("http://localhost:8000/predict", json={"x": 25})
+print(response.json())  # {"input": 25, "prediction": 50.0}
+```
+
+Check logs in `logs/model_service.log`:
+```
+2025-01-15 10:23:45 - INFO - POST /predict - 0.012s - 200
+2025-01-15 10:23:45 - INFO - Prediction: input=25, output=50.00, latency=0.0084s
+```
+
+This demonstrates turning a trained model into an API endpoint with logging enabled for monitoring and debugging.
+
+---
+
+## 8. Conclusion
+
+In this chapter, we explored monitoring and observability for ML systems, understanding the fundamentals required to build reliable production systems.
+
+We began by understanding why models degrade, distinguishing between traditional software failures and ML-specific failures. We explored ML-specific degradation in depth: data drift, concept drift, training-serving skew, and outliers.
+
+We covered techniques to detect drift, including statistical methods (KL Divergence, PSI, KS Test) for data drift, performance tracking and drift classifiers for concept drift, and ADWIN for streaming data.
+
+Next, we explored logging and observability concepts: prediction logging, system metrics, resource monitoring, alerting, dashboards, and logging for feedback loops.
+
+Finally, we conducted hands-on exercises on drift detection using statistical tests and logging in FastAPI-based applications.
+
+**Key Takeaways:**
+- ML-specific issues are insidious failures unique to systems that learn from data
+- A solid understanding of monitoring, observability, and statistical detection methods is essential
+- Silent degradation is the enemy—comprehensive logging makes invisible problems visible
+- Drift detection requires both statistical rigor and domain understanding
+
+In the next part, we will explore advanced monitoring tools and frameworks including Evidently AI, Prometheus, and Grafana for production ML systems.
+
+:::info Recommended Reading
+- [Evidently AI Documentation](https://docs.evidentlyai.com/)
+- [Google's Rules of Machine Learning - Monitoring](https://developers.google.com/machine-learning/guides/rules-of-ml)
+- [Amazon SageMaker Model Monitor](https://docs.aws.amazon.com/sagemaker/latest/dg/model-monitor.html)
+:::

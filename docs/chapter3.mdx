@@ -1,0 +1,540 @@
+---
+sidebar_position: 3
+title: "Reproducibility and Versioning - Part A"
+description: "Master reproducibility through versioning, experiment tracking, and hands-on implementations with DVC and MLflow"
+---
+
+import { Box, Arrow, Row, Column, Group, DiagramContainer, ProcessFlow, TreeDiagram, CardGrid, StackDiagram, ComparisonTable, colors } from '@site/src/components/diagrams';
+
+# Reproducibility and Versioning in ML Systems - Part A
+
+> *"If it is not reproducible, it is not science. In MLOps, if it is not reproducible, it will not be robust in production."*
+
+## Table of Contents
+
+1. [Introduction](#introduction)
+2. [Why Reproducibility Matters](#why-reproducibility-matters)
+   - 2.1. [Debugging and Error Tracking](#debugging-and-error-tracking)
+   - 2.2. [Collaboration](#collaboration)
+   - 2.3. [Regulations and Compliance](#regulations-and-compliance)
+3. [Challenges to Reproducibility](#challenges-to-reproducibility)
+4. [Best Practices for Reproducibility](#best-practices-for-reproducibility-and-versioning)
+   - 4.1. [Deterministic Processes](#ensure-deterministic-processes)
+   - 4.2. [Version Control](#version-control-for-code)
+   - 4.3. [Data Versioning](#version-data)
+   - 4.4. [Experiment Tracking](#track-experiments-and-metadata)
+   - 4.5. [Environment Management](#environment-management)
+5. [Hands-On Implementations](#hands-on-implementations)
+   - 5.1. [PyTorch Model Training](#pytorch-model-training-loop-and-model-persistence)
+   - 5.2. [Git + DVC](#git--dvc-for-version-control)
+   - 5.3. [MLflow Experiment Tracking](#training-and-tracking-with-mlflow)
+6. [Conclusion](#conclusion)
+
+## Introduction
+
+One topic we have touched on throughout, but which deserves focused attention, is reproducibility.
+
+**In plain English:** Reproducibility means that if you bake a cake today and it turns out delicious, you can bake the exact same cake tomorrow using the same recipe, ingredients, and process - and it will taste just as good.
+
+**In technical terms:** Reproducibility means that you can repeat an experiment or process and get the same results. In ML, this is critical for trust and collaboration. If someone else (or you in the future) cannot reproduce your model's training, it is hard to debug issues or improve upon it.
+
+**Why it matters:** Reproducibility ties closely with versioning, because to reproduce an experiment, you need to know exactly which code, data, and parameters were used. Without reproducibility, ML becomes unreliable art rather than engineering discipline.
+
+<DiagramContainer title="The Reproducibility Triangle">
+  <CardGrid columns={3}>
+    <Box color={colors.blue}>
+      <h4>Code</h4>
+      <p>Version control with Git</p>
+      <p>Exact commit hash</p>
+      <p>Library versions</p>
+    </Box>
+    <Box color={colors.green}>
+      <h4>Data</h4>
+      <p>Version with DVC</p>
+      <p>Checksums/hashes</p>
+      <p>Timestamps</p>
+    </Box>
+    <Box color={colors.orange}>
+      <h4>Environment</h4>
+      <p>Docker containers</p>
+      <p>Requirements.txt</p>
+      <p>Random seeds</p>
+    </Box>
+  </CardGrid>
+</DiagramContainer>
+
+## Why Reproducibility Matters
+
+With whatever we have learned so far, we understand that reproducibility is quite critical for production-grade systems. Let's expand upon our understanding and see the key factors that make reproducibility and versioning so important.
+
+### Debugging and Error Tracking
+
+If a model's performance suddenly drops or if there is a discrepancy between offline and online behavior, being able to reproduce the training process exactly as it was can help pinpoint the cause.
+
+**In plain English:** Imagine your car starts making a strange noise. If you cannot recreate the conditions when the noise happens, the mechanic cannot fix it. Same with ML models - you need to reproduce the problem to fix it.
+
+**In technical terms:** Was it a code change? A new version of a library? A different random seed? Without reproducibility, you are effectively chasing a moving target.
+
+**Why it matters:** Reproducibility enables systematic debugging and root cause analysis, turning mysterious failures into solvable engineering problems.
+
+### Collaboration
+
+In a team, one engineer might want to rerun another's experiment to verify results or build on it. If it is not reproducible, it slows down progress.
+
+<DiagramContainer title="Impact of Reproducibility on Team Velocity">
+  <ComparisonTable
+    headers={['Scenario', 'Without Reproducibility', 'With Reproducibility']}
+    rows={[
+      ['Experiment Sharing', 'Manual explanation, unclear parameters', 'Automated recreation, exact parameters'],
+      ['Code Review', 'Cannot verify results', 'Can rerun and validate'],
+      ['Knowledge Transfer', 'Depends on individual memory', 'Self-documenting experiments'],
+      ['Time to Reproduce', 'Hours to days of guesswork', 'Minutes with proper tooling']
+    ]}
+  />
+</DiagramContainer>
+
+### Regulations and Compliance
+
+In certain industries like healthcare, finance, or autonomous vehicles, you might need to prove how a model was built and that it behaves consistently.
+
+:::warning Regulatory Requirements
+A bank might need to show regulators the exact training procedure that led to a credit risk model and that running it again on the same data yields the same outcome. If a model decision is ever challenged (say, someone accuses it of bias), you will need to recreate how that decision came to be.
+:::
+
+<CardGrid columns={3}>
+  <Box color={colors.blue}>
+    <h4>Healthcare</h4>
+    <p>FDA approval requires reproducible model training and validation processes</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Finance</h4>
+    <p>Model risk management frameworks demand audit trails and reproducibility</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Autonomous Systems</h4>
+    <p>Safety certifications require demonstrable consistency in model behavior</p>
+  </Box>
+</CardGrid>
+
+## Challenges to Reproducibility
+
+Unlike pure software, ML's outcome can depend on randomness (initial weights in neural nets, random train-test split, etc.). If not controlled, two runs with the same code/data could still yield slightly different models.
+
+<StackDiagram
+  layers={[
+    { label: 'Code Changes', size: 1, color: colors.blue },
+    { label: 'Data Changes', size: 2, color: colors.green },
+    { label: 'Environment Changes', size: 2, color: colors.orange },
+    { label: 'Random Seed Issues', size: 1, color: colors.purple },
+    { label: 'Untracked Experiments', size: 2, color: colors.pink }
+  ]}
+/>
+
+**Key Challenges:**
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Data is Large and Changes</h4>
+    <p>Cannot just throw dataset into Git easily. Data may update over time.</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Environment Matters</h4>
+    <p>Library versions, hardware, OS can affect results. Floating-point precision on different GPUs can cause differences.</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Complex Pipelines</h4>
+    <p>Model hyperparameters, feature pipelines, preprocessing steps - many moving pieces.</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Untracked Experiments</h4>
+    <p>Easy to manually tweak something in a notebook and forget, leading to one-off models hard to replicate.</p>
+  </Box>
+</CardGrid>
+
+## Best Practices for Reproducibility and Versioning
+
+Now that we have a solid understanding of the importance of reproducibility and the challenges it presents, let's explore the best practices that help us fully leverage the benefits of reproducibility and versioning.
+
+### Ensure Deterministic Processes
+
+If exact reproducibility is needed, set random seeds in your training code. Most ML libraries allow this.
+
+```python
+import numpy as np
+import random
+import torch
+
+# Set all random seeds
+np.random.seed(42)
+random.seed(42)
+torch.manual_seed(42)
+
+# For CUDA operations
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    # For deterministic behavior (may be slower)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+```
+
+:::tip Reproducibility Trade-offs
+Absolute reproducibility (bit-for-bit) can sometimes be unnecessarily strict. Often, we care that the model performance is reproducible within a tolerance, not the exact weights. However, if you can achieve bit-for-bit reproducibility easily, do it because it simplifies debugging.
+:::
+
+### Version Control for Code
+
+This is non-negotiable. All code, from data preparation scripts to model training code, should be in Git (or another version control system).
+
+<ProcessFlow
+  steps={[
+    { label: 'Write Code', description: 'Develop training script' },
+    { label: 'Commit', description: 'Git commit with meaningful message' },
+    { label: 'Tag/Branch', description: 'Tag releases or create feature branches' },
+    { label: 'Link to Models', description: 'Include Git hash in model metadata' }
+  ]}
+/>
+
+**Best Practice:** Every experiment should ideally tie to a Git commit or tag. Include the Git commit hash in the model's metadata. This allows tracing back from a model to the code.
+
+### Version Data
+
+This one is trickier but crucial. At minimum, if you are retraining a model, save a snapshot or reference to the exact data used.
+
+**In plain English:** Think of data versioning like taking dated photographs of your raw ingredients before cooking. If the dish turns out great, you know exactly which batch of ingredients you used.
+
+**In technical terms:** If the training data lives in a database and is constantly changing, you might need to snapshot it. Use tools like DVC (Data Version Control) which extends Git workflows to data and models.
+
+**Why it matters:** Without data versioning, you might end up confused between different variants of the same data, not understanding which one was exactly used.
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>DVC (Data Version Control)</h4>
+    <ul>
+      <li>Git-like experience for data</li>
+      <li>Stores hashes/references, not actual data</li>
+      <li>Works with cloud storage</li>
+      <li>Tracks dataset versions</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Metadata Logging</h4>
+    <ul>
+      <li>Timestamps of data extraction</li>
+      <li>Checksums of files</li>
+      <li>Number of records</li>
+      <li>Data source information</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+### Track Experiments and Metadata
+
+Use an experiment tracker (like MLflow or Weights & Biases) to log everything about an experiment and its runs.
+
+<DiagramContainer title="Experiment Tracking Components">
+  <StackDiagram
+    layers={[
+      { label: 'Run ID', size: 1, color: colors.blue },
+      { label: 'Parameters (hyperparameters, epochs)', size: 2, color: colors.green },
+      { label: 'Metrics (accuracy, loss)', size: 2, color: colors.orange },
+      { label: 'Code Version (Git hash)', size: 1, color: colors.purple },
+      { label: 'Data Version (DVC hash)', size: 1, color: colors.pink },
+      { label: 'Model Artifact', size: 2, color: colors.yellow }
+    ]}
+  />
+</DiagramContainer>
+
+:::tip MLflow Concepts
+- **Experiment:** A named collection of runs
+- **Run:** A single execution of a machine learning workflow within a specific experiment. It encapsulates all details including code, parameters, metrics, and artifacts.
+:::
+
+### Environment Management
+
+Use tools to capture the software environment:
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Dependency Management</h4>
+    <ul>
+      <li>requirements.txt or environment.yml</li>
+      <li>Pin library versions (avoid floating dependencies)</li>
+      <li>Use virtual environments</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Containerization</h4>
+    <ul>
+      <li>Docker images as environment snapshots</li>
+      <li>Version Docker images (my-train-env:v1)</li>
+      <li>Infrastructure as code</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+## Hands-On Implementations
+
+Now that we have covered the key principles, let's put some of these ideas into practice through hands-on simulations.
+
+### PyTorch Model Training Loop and Model Persistence
+
+Let's illustrate a simple PyTorch training loop that includes reproducibility (with seeds) and how to save and load model weights.
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+# Set seed for reproducibility
+torch.manual_seed(0)
+
+# Define a simple neural network
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.fc1 = nn.Linear(10, 50)
+        self.fc2 = nn.Linear(50, 1)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
+
+# Create model and optimizer
+model = Net()
+criterion = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# Dummy data
+X = torch.randn(100, 10)
+y = torch.randn(100, 1)
+
+# Training loop
+epochs = 5
+for epoch in range(epochs):
+    optimizer.zero_grad()
+    outputs = model(X)
+    loss = criterion(outputs, y)
+    loss.backward()
+    optimizer.step()
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.4f}")
+
+# Save model weights
+torch.save(model.state_dict(), 'model_weights.pth')
+
+# Load model for inference
+model2 = Net()
+model2.load_state_dict(torch.load('model_weights.pth'))
+model2.eval()
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Reproducibility Elements</h4>
+    <ul>
+      <li>Fixed random seed (torch.manual_seed(0))</li>
+      <li>Deterministic initialization</li>
+      <li>Same data generation</li>
+      <li>Consistent training loop</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Best Practices</h4>
+    <ul>
+      <li>Save state_dict() not entire model</li>
+      <li>Include optimizer state for resuming</li>
+      <li>Log epoch number and metrics</li>
+      <li>Set model.eval() for inference</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+:::tip Checkpoint Saving
+For production, also save optimizer state and epoch number:
+```python
+checkpoint = {
+    'epoch': epoch,
+    'model_state_dict': model.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+    'loss': loss,
+}
+torch.save(checkpoint, 'checkpoint.pth')
+```
+:::
+
+### Git + DVC for Version Control
+
+DVC (Data Version Control) is an open-source version control system designed for data science and machine learning projects. It extends Git capabilities to handle large datasets.
+
+<ProcessFlow
+  steps={[
+    { label: 'Initialize', description: 'git init && dvc init' },
+    { label: 'Add Data', description: 'dvc add data.csv' },
+    { label: 'Commit', description: 'git add data.csv.dvc && git commit' },
+    { label: 'Push', description: 'dvc push (to remote storage)' },
+    { label: 'Pull', description: 'dvc pull (restore data)' }
+  ]}
+/>
+
+**Quick Example Workflow:**
+
+```bash
+# Initialize Git and DVC
+git init
+dvc init
+
+# Track data file with DVC
+dvc add data.csv
+
+# This creates data.csv.dvc and adds data.csv to .gitignore
+# Commit the .dvc file
+git add data.csv.dvc .gitignore
+git commit -m "Add dataset"
+
+# Set up remote storage (local folder for demo)
+dvc remote add -d myremote /path/to/storage
+
+# Push data to remote
+dvc push
+
+# To restore data later
+dvc pull
+```
+
+<ComparisonTable
+  headers={['Operation', 'Git', 'DVC']}
+  rows={[
+    ['What is versioned', 'Code files', 'Data files and models'],
+    ['Storage', 'Git repository', 'External storage (S3, GCS, local)'],
+    ['File size', 'Small files', 'Large files (GBs, TBs)'],
+    ['Tracking method', 'Content in repo', 'Hashes and pointers']
+  ]}
+/>
+
+### Training and Tracking with MLflow
+
+MLflow is an open-source platform designed to manage the complete machine learning lifecycle. Let's see how to use it for experiment tracking and model registration.
+
+```python
+import mlflow
+import mlflow.sklearn
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, log_loss
+
+# Load data
+iris = load_iris()
+X_train, X_test, y_train, y_test = train_test_split(
+    iris.data, iris.target, test_size=0.2, random_state=42
+)
+
+# Set experiment name
+mlflow.set_experiment("Iris_Classification")
+
+# Define models to compare
+models = {
+    "RandomForest": RandomForestClassifier(n_estimators=100, random_state=42),
+    "SVC": SVC(probability=True, random_state=42),
+    "LogisticRegression": LogisticRegression(random_state=42)
+}
+
+# Train and log each model
+for name, model in models.items():
+    with mlflow.start_run(run_name=name):
+        # Train
+        model.fit(X_train, y_train)
+
+        # Predict
+        y_pred = model.predict(X_test)
+        y_proba = model.predict_proba(X_test)
+
+        # Calculate metrics
+        accuracy = accuracy_score(y_test, y_pred)
+        logloss = log_loss(y_test, y_proba)
+
+        # Log parameters and metrics
+        mlflow.log_param("model_type", name)
+        mlflow.log_metric("accuracy", accuracy)
+        mlflow.log_metric("log_loss", logloss)
+
+        # Log model
+        mlflow.sklearn.log_model(model, name)
+
+        print(f"{name}: Accuracy={accuracy:.3f}, LogLoss={logloss:.3f}")
+```
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>What Gets Logged</h4>
+    <ul>
+      <li>Parameters (model type, hyperparameters)</li>
+      <li>Metrics (accuracy, log loss)</li>
+      <li>Model artifacts</li>
+      <li>Code version (automatically)</li>
+    </ul>
+  </Box>
+  <Box color={colors.green}>
+    <h4>MLflow UI Benefits</h4>
+    <ul>
+      <li>Compare runs side-by-side</li>
+      <li>Visualize metric graphs</li>
+      <li>Download model artifacts</li>
+      <li>Register best models</li>
+    </ul>
+  </Box>
+</CardGrid>
+
+**Registering the Best Model:**
+
+```python
+# Via code
+run_id = "abc123..."  # Get from MLflow UI
+model_uri = f"runs:/{run_id}/RandomForest"
+mlflow.register_model(model_uri, "IrisBestModel")
+```
+
+:::tip Model Registry
+Through model registration, although many models are logged, only a few are registered based on performance and business criteria. The registry serves as a curated catalog of production-candidate models.
+:::
+
+## Conclusion
+
+In this chapter, we learned what is arguably one of the most essential but often underestimated pillars of machine learning systems: reproducibility and versioning.
+
+### Key Takeaways
+
+<CardGrid columns={2}>
+  <Box color={colors.blue}>
+    <h4>Reproducibility is Not Optional</h4>
+    <p>It builds trust, enables collaboration, satisfies regulations, and prevents regression bugs</p>
+  </Box>
+  <Box color={colors.green}>
+    <h4>Version Everything</h4>
+    <p>Code (Git), data (DVC), models (MLflow), and environments (Docker)</p>
+  </Box>
+  <Box color={colors.orange}>
+    <h4>Tools Enable Practices</h4>
+    <p>DVC for data, MLflow for experiments, Docker for environments - each solves specific problems</p>
+  </Box>
+  <Box color={colors.purple}>
+    <h4>Trade-offs Exist</h4>
+    <p>Absolute bit-for-bit reproducibility is not always necessary. Consistent behavior matters more.</p>
+  </Box>
+</CardGrid>
+
+> **Insight**
+>
+> Reproducibility is not about adding overhead - it is about saving future time, avoiding regression bugs, enabling collaboration, and staying accountable. It is the bridge between experimentation and production.
+
+### What's Next
+
+Future chapters will build on this foundation:
+
+- Extending tooling for reproducibility and versioning
+- CI/CD workflows tailored for ML systems
+- Real-world case studies from industry
+- Monitoring and observation in production
+- Special considerations for LLMOps
+- Full end-to-end examples combining all elements
