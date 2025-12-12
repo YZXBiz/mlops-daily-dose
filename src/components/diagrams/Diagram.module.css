@@ -456,6 +456,20 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
+.comparisonTitle {
+  padding: 1rem 1.25rem;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--ifm-color-emphasis-800);
+  background: linear-gradient(135deg, var(--ifm-color-emphasis-100) 0%, var(--ifm-color-emphasis-200) 100%);
+  border-bottom: 1px solid var(--ifm-color-emphasis-200);
+}
+
+[data-theme='dark'] .comparisonTitle {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+}
+
 [data-theme='dark'] .comparison {
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);

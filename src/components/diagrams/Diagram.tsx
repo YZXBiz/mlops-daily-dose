@@ -449,16 +449,16 @@ export function StackDiagram({ layers, title }: StackDiagramProps) {
 }
 
 // ============================================
-// ComparisonTable - Side by side comparison
+// ComparisonTable - Flexible table component
 // ============================================
-interface ComparisonItem {
-  label: string;
-  before: string;
-  after: string;
-}
-
 interface ComparisonTableProps {
-  items?: ComparisonItem[];
+  // Format 1: headers + rows (array of arrays)
+  headers?: string[];
+  rows?: (string | React.ReactNode)[][];
+  title?: string;
+  // Format 2: items array (auto-detects keys)
+  items?: Record<string, any>[];
+  // Legacy props
   beforeTitle?: string;
   afterTitle?: string;
   beforeColor?: string;
@@ -467,11 +467,12 @@ interface ComparisonTableProps {
 }
 
 export function ComparisonTable({
+  headers,
+  rows,
+  title,
   items,
   beforeTitle = 'Before',
   afterTitle = 'After',
-  beforeColor = colors.slate,
-  afterColor = colors.green,
   children
 }: ComparisonTableProps) {
   // If children provided, render them
@@ -483,20 +484,86 @@ export function ComparisonTable({
     );
   }
 
+  // Format 1: headers + rows (array of arrays)
+  if (headers && rows) {
+    return (
+      <div className={styles.comparison}>
+        {title && <div className={styles.comparisonTitle}>{title}</div>}
+        <div className={styles.comparisonHeader} style={{ gridTemplateColumns: `repeat(${headers.length}, 1fr)` }}>
+          {headers.map((header, idx) => (
+            <div key={idx}>{header}</div>
+          ))}
+        </div>
+        {rows.map((row, rowIdx) => (
+          <div key={rowIdx} className={styles.comparisonRow} style={{ gridTemplateColumns: `repeat(${headers.length}, 1fr)` }}>
+            {row.map((cell, cellIdx) => (
+              <div key={cellIdx} className={cellIdx === 0 ? styles.comparisonLabel : ''}>{cell}</div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Format 2: items array - auto-detect format
+  if (items && items.length > 0) {
+    const firstItem = items[0];
+
+    // Detect format based on keys
+    if ('aspect' in firstItem) {
+      // Chapter8 format: aspect, option1, option2, recommendation
+      const cols = ['Aspect', 'Option 1', 'Option 2', 'Recommendation'].filter((_, i) =>
+        i === 0 || (i === 1 && 'option1' in firstItem) || (i === 2 && 'option2' in firstItem) || (i === 3 && 'recommendation' in firstItem)
+      );
+      return (
+        <div className={styles.comparison}>
+          {title && <div className={styles.comparisonTitle}>{title}</div>}
+          <div className={styles.comparisonHeader} style={{ gridTemplateColumns: `repeat(${cols.length}, 1fr)` }}>
+            {cols.map((col, idx) => <div key={idx}>{col}</div>)}
+          </div>
+          {items.map((item, rowIdx) => (
+            <div key={rowIdx} className={styles.comparisonRow} style={{ gridTemplateColumns: `repeat(${cols.length}, 1fr)` }}>
+              <div className={styles.comparisonLabel}>{item.aspect}</div>
+              {item.option1 && <div>{item.option1}</div>}
+              {item.option2 && <div>{item.option2}</div>}
+              {item.recommendation && <div>{item.recommendation}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    // Legacy format: label, before, after
+    if ('label' in firstItem) {
+      return (
+        <div className={styles.comparison}>
+          {title && <div className={styles.comparisonTitle}>{title}</div>}
+          <div className={styles.comparisonHeader}>
+            <div></div>
+            <div>{beforeTitle}</div>
+            <div>{afterTitle}</div>
+          </div>
+          {items.map((item, index) => (
+            <div key={index} className={styles.comparisonRow}>
+              <div className={styles.comparisonLabel}>{item.label}</div>
+              <div>{item.before}</div>
+              <div>{item.after}</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+  }
+
+  // Fallback: empty table
   return (
     <div className={styles.comparison}>
+      {title && <div className={styles.comparisonTitle}>{title}</div>}
       <div className={styles.comparisonHeader}>
         <div></div>
-        <div style={{ color: beforeColor }}>{beforeTitle}</div>
-        <div style={{ color: afterColor }}>{afterTitle}</div>
+        <div>{beforeTitle}</div>
+        <div>{afterTitle}</div>
       </div>
-      {(items || []).map((item, index) => (
-        <div key={index} className={styles.comparisonRow}>
-          <div className={styles.comparisonLabel}>{item.label}</div>
-          <div className={styles.comparisonBefore}>{item.before}</div>
-          <div className={styles.comparisonAfter}>{item.after}</div>
-        </div>
-      ))}
     </div>
   );
 }
