@@ -188,30 +188,21 @@ export function DiagramContainer({ children, title }: DiagramContainerProps) {
 // ============================================
 interface ProcessStep {
   title?: string;
-  label?: string;
+  label?: string;  // alias for title
   description?: string;
   icon?: string;
   color?: string;
-  active?: boolean;
 }
 
 interface ProcessFlowProps {
   steps?: ProcessStep[];
-  stages?: { label: string; color?: string }[];
   direction?: 'horizontal' | 'vertical';
 }
 
-export function ProcessFlow({ steps, stages, direction = 'horizontal' }: ProcessFlowProps) {
-  // Support both steps and stages format
-  const items = steps || stages?.map(s => ({ title: s.label, color: s.color })) || [];
-
-  if (items.length === 0) {
-    return null;
-  }
-
+export function ProcessFlow({ steps = [], direction = 'horizontal' }: ProcessFlowProps) {
   return (
     <div className={`${styles.processFlow} ${direction === 'vertical' ? styles.processFlowVertical : ''}`}>
-      {items.map((step, index) => (
+      {steps.map((step, index) => (
         <React.Fragment key={index}>
           <div className={styles.processStep}>
             <div
@@ -227,7 +218,7 @@ export function ProcessFlow({ steps, stages, direction = 'horizontal' }: Process
               )}
             </div>
           </div>
-          {index < items.length - 1 && (
+          {index < steps.length - 1 && (
             <div className={`${styles.processConnector} ${direction === 'vertical' ? styles.processConnectorVertical : ''}`}>
               {direction === 'vertical' ? '↓' : '→'}
             </div>
@@ -249,28 +240,11 @@ interface TreeNode {
 }
 
 interface TreeDiagramProps {
-  root?: TreeNode;
+  root: TreeNode;
   compact?: boolean;
-  children?: React.ReactNode;
 }
 
-export function TreeDiagram({ root, compact = false, children }: TreeDiagramProps) {
-  // If children are provided, render them in a column layout
-  if (children) {
-    return (
-      <div className={styles.tree}>
-        <div className={styles.column} style={{ gap: '0.75rem', alignItems: 'stretch' }}>
-          {children}
-        </div>
-      </div>
-    );
-  }
-
-  // If no root, return null
-  if (!root) {
-    return null;
-  }
-
+export function TreeDiagram({ root, compact = false }: TreeDiagramProps) {
   const renderNode = (node: TreeNode, level: number = 0) => (
     <div className={styles.treeNode} key={node.label}>
       <Box color={node.color || colors.blue} size={compact ? 'sm' : 'md'} icon={node.icon}>
@@ -328,17 +302,13 @@ export function CardGrid({ cards, columns = 3, children }: CardGridProps) {
     );
   }
 
-  // If no cards, return null
-  if (!cards || cards.length === 0) {
-    return null;
-  }
-
+  // Otherwise render from cards prop
   return (
     <div
       className={styles.cardGrid}
       style={{ gridTemplateColumns: `repeat(${columns}, 1fr)` }}
     >
-      {cards.map((card, index) => (
+      {(cards || []).map((card, index) => (
         <div
           key={index}
           className={styles.card}
@@ -445,29 +415,11 @@ interface Layer {
 }
 
 interface StackDiagramProps {
-  layers?: Layer[];
+  layers: Layer[];
   title?: string;
-  children?: React.ReactNode;
 }
 
-export function StackDiagram({ layers, title, children }: StackDiagramProps) {
-  // If children are provided, render them directly
-  if (children) {
-    return (
-      <div className={styles.stack}>
-        {title && <div className={styles.stackTitle}>{title}</div>}
-        <div className={styles.column} style={{ gap: '0.5rem', width: '100%' }}>
-          {children}
-        </div>
-      </div>
-    );
-  }
-
-  // If no layers, return null
-  if (!layers || layers.length === 0) {
-    return null;
-  }
-
+export function StackDiagram({ layers, title }: StackDiagramProps) {
   return (
     <div className={styles.stack}>
       {title && <div className={styles.stackTitle}>{title}</div>}
@@ -507,64 +459,28 @@ interface ComparisonItem {
 
 interface ComparisonTableProps {
   items?: ComparisonItem[];
-  headers?: string[];
-  rows?: string[][];
   beforeTitle?: string;
   afterTitle?: string;
   beforeColor?: string;
   afterColor?: string;
+  children?: React.ReactNode;
 }
 
 export function ComparisonTable({
   items,
-  headers,
-  rows,
   beforeTitle = 'Before',
   afterTitle = 'After',
   beforeColor = colors.slate,
-  afterColor = colors.green
+  afterColor = colors.green,
+  children
 }: ComparisonTableProps) {
-  // Support headers/rows format (generic table)
-  if (headers && rows) {
+  // If children provided, render them
+  if (children) {
     return (
-      <div className={styles.comparison} style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              {headers.map((header, idx) => (
-                <th key={idx} style={{
-                  padding: '0.75rem',
-                  borderBottom: '2px solid var(--ifm-color-emphasis-300)',
-                  textAlign: 'left',
-                  fontWeight: 600
-                }}>
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, rowIdx) => (
-              <tr key={rowIdx}>
-                {row.map((cell, cellIdx) => (
-                  <td key={cellIdx} style={{
-                    padding: '0.75rem',
-                    borderBottom: '1px solid var(--ifm-color-emphasis-200)'
-                  }}>
-                    {cell}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className={styles.comparison}>
+        {children}
       </div>
     );
-  }
-
-  // Original before/after format
-  if (!items || items.length === 0) {
-    return null;
   }
 
   return (
@@ -574,7 +490,7 @@ export function ComparisonTable({
         <div style={{ color: beforeColor }}>{beforeTitle}</div>
         <div style={{ color: afterColor }}>{afterTitle}</div>
       </div>
-      {items.map((item, index) => (
+      {(items || []).map((item, index) => (
         <div key={index} className={styles.comparisonRow}>
           <div className={styles.comparisonLabel}>{item.label}</div>
           <div className={styles.comparisonBefore}>{item.before}</div>
