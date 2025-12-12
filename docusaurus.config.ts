@@ -2,23 +2,34 @@ import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 
+// =============================================================================
+// CONFIGURE YOUR PROJECT HERE
+// =============================================================================
+const PROJECT_NAME = 'MLOps & LLMOps Crash Course';  // Display name
+const GITHUB_USERNAME = 'YZXBiz';                     // Your GitHub username
+const REPO_NAME = 'mlops-daily-dose';                 // Repository name
+// =============================================================================
+
 const config: Config = {
-  title: 'MLOps & LLMOps Crash Course',
+  title: PROJECT_NAME,
   tagline: 'A comprehensive guide to building production ML systems',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/logo.svg',
 
   future: {
     v4: true,
   },
 
-  url: 'https://YZXBiz.github.io',
-  baseUrl: '/mlops-daily-dose/',
+  themes: ['@docusaurus/theme-live-codeblock'],
 
-  organizationName: 'YZXBiz',
-  projectName: 'mlops-daily-dose',
+  // GitHub Pages deployment
+  url: `https://${GITHUB_USERNAME}.github.io`,
+  baseUrl: `/${REPO_NAME}/`,
+  organizationName: GITHUB_USERNAME,
+  projectName: REPO_NAME,
+  deploymentBranch: 'gh-pages',
+  trailingSlash: false,
 
-  onBrokenLinks: 'warn',
-  onBrokenAnchors: 'warn',
+  onBrokenLinks: 'throw',
 
   i18n: {
     defaultLocale: 'en',
@@ -32,6 +43,7 @@ const config: Config = {
         docs: {
           sidebarPath: './sidebars.ts',
           routeBasePath: '/',
+          editUrl: `https://github.com/${GITHUB_USERNAME}/${REPO_NAME}/tree/master/docs/`,
         },
         blog: false,
         theme: {
@@ -42,20 +54,27 @@ const config: Config = {
   ],
 
   themeConfig: {
+    image: 'img/social-card.jpg',
     colorMode: {
+      defaultMode: 'light',
+      disableSwitch: false,
       respectPrefersColorScheme: true,
     },
     navbar: {
-      title: 'MLOps & LLMOps Crash Course',
+      title: PROJECT_NAME,
+      logo: {
+        alt: `${PROJECT_NAME} Logo`,
+        src: 'img/logo.svg',
+      },
       items: [
         {
           type: 'docSidebar',
-          sidebarId: 'tutorialSidebar',
+          sidebarId: 'guideSidebar',
           position: 'left',
           label: 'Guide',
         },
         {
-          href: 'https://github.com/YZXBiz/mlops-daily-dose',
+          href: `https://github.com/${GITHUB_USERNAME}/${REPO_NAME}`,
           label: 'GitHub',
           position: 'right',
         },
@@ -63,12 +82,29 @@ const config: Config = {
     },
     footer: {
       style: 'dark',
-      copyright: `MLOps & LLMOps Crash Course. Built with Docusaurus.`,
+      links: [
+        {
+          title: 'Guide',
+          items: [
+            {label: 'Introduction', to: '/'},
+          ],
+        },
+        {
+          title: 'More',
+          items: [
+            {
+              label: 'GitHub',
+              href: `https://github.com/${GITHUB_USERNAME}/${REPO_NAME}`,
+            },
+          ],
+        },
+      ],
+      copyright: `Copyright ${new Date().getFullYear()} ${PROJECT_NAME}. Built with Docusaurus.`,
     },
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
-      additionalLanguages: ['python', 'bash', 'yaml', 'json'],
+      additionalLanguages: ['bash', 'yaml', 'json', 'go', 'java', 'python', 'csharp'],
     },
   } satisfies Preset.ThemeConfig,
 };
